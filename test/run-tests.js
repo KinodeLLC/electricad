@@ -1355,9 +1355,33 @@ t('boards: clones are their own revisions, genuine boards stay the default, noth
   for (const k of ['uno/r3', 'mega/rev3', 'leonardo/rev3', 'nano/v3', 'featherm4']) assert(S[k] && S[k].top, k);
   assert(S['mega/rev3'].top.t.some((t) => t[5] === 'COMMUNICATION') && S['mega/rev3'].top.t.some((t) => /MADE IN/.test(t[5])));
   for (const sk of Object.values(S)) for (const side of ['top', 'bottom']) if (sk[side] && sk[side].img)
-    assert(fs.existsSync(path.join(__dirname, '..', 'renderer', sk[side].img.src)), sk[side].img.src);
+    assert(/^data:image\/png;base64,/.test(sk[side].img.src), 'silk picture inlined');
   // the Feather's own artwork goes on the side Adafruit put it (201 = bottom)
   assert(S.featherm4.bottom.img && S.featherm4.top.img);
+});
+t('3D view: only boards with design-file geometry, heights from package standards', () => {
+  delete require.cache[require.resolve('../renderer/board3d.js')];
+  require('../renderer/board3d.js');
+  const D = global.window.PinodeBoard3D, B = global.window.PINODE_BOARDS;
+  for (const id of ['uno', 'mega', 'leonardo', 'nano', 'nanoevery', 'featherm4', 'featherrp2040']) assert(D.supported(B[id]), id);
+  for (const id of ['esp32', 'nodemcu', 'pico', 'pi']) assert(!D.supported(B[id]), id + ' stays flat');
+  const h = D.partHeight;
+  assert.strictEqual(h({ kind: 'ic', pkg: 'TQFP100' }), 1.2);
+  assert.strictEqual(h({ kind: 'ic', pkg: 'DIL28-3' }), 3.8);
+  assert.strictEqual(h({ kind: 'ic', pkg: 'QFN32' }), 0.9);
+  assert.strictEqual(h({ kind: 'cap', pkg: 'C0402' }), 0.5);
+  assert.strictEqual(h({ kind: 'ecap', pkg: 'PANASONIC_D' }), 5.8);
+  assert.strictEqual(h({ kind: 'xtal', pkg: 'HC49/S' }), 3.5);
+  // pin headers are drawn from the pins, never from a part's own box
+  assert.strictEqual(h({ kind: 'conn', pkg: '2X03' }), 0);
+  assert.strictEqual(h({ kind: 'conn', pkg: '1X08' }), 0);
+  assert.strictEqual(h({ kind: 'conn', pkg: 'JSTPH2' }), 6);
+  // every fitted part kind on every board gets a height or is left flat on purpose
+  for (const list of Object.values(global.window.PINODE_BOARD_PARTS)) for (const c of list) assert(Number.isFinite(h(c)), c.ref);
+  // header plastic: the Uno has its two shield rows on both edges plus ICSP
+  const hb = global.window.PinodeBoard.headerBoxes(B.uno, global.window.PINODE_BOARD_PARTS['uno/r3']);
+  assert(hb.filter((b) => !b.male).length >= 4 && hb.some((b) => b.male), 'uno headers');
+  assert(hb.some((b) => b.y1 < 5) && hb.some((b) => b.y2 > 48), 'both rows');
 });
 t('boards: every component comes from the makers\' design files, marked only where the print is known', () => {
   require('../renderer/boardparts.js');

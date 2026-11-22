@@ -295,9 +295,9 @@ window.PinodeBoard = (function () {
   // form one header (the gap between D7 and D8 splits them, as on the board).
   // Shield headers are female sockets; ICSP is a male 2×3, also where the
   // design has a 2×3 footprint with no pins of ours on it (the USB chip's ICSP).
-  function drawHeaders(parent, def, parts) {
-    const g = el('g', { class: 'bv-headers' }, parent), U = def.unitsPerMm;
-    const pins = (def.pins || []).filter((p) => p.at && (p.side || 'top') === 'top');
+  // header bodies in board mm: { x1, y1, x2, y2, male, pinsAt? }
+  function headerBoxes(def, parts) {
+    const pins = (def.pins || []).filter((p) => p.at);   // p.side is the nearest edge, not the board face
     const up = pins.map((_, i) => i), find = (i) => (up[i] === i ? i : (up[i] = find(up[i])));
     for (let i = 0; i < pins.length; i++) for (let j = i + 1; j < pins.length; j++) {
       const dx = Math.abs(pins[i].at[0] - pins[j].at[0]), dy = Math.abs(pins[i].at[1] - pins[j].at[1]);
@@ -322,7 +322,11 @@ window.PinodeBoard = (function () {
       for (let i = -1; i <= 1; i++) for (const j of [-0.5, 0.5]) pinsAt.push(wide ? [cx + i * 2.54, cy + j * 2.54] : [cx + j * 2.54, cy + i * 2.54]);
       boxes.push({ x1: cx - hw, y1: cy - hh, x2: cx + hw, y2: cy + hh, male: true, pinsAt });
     }
-    for (const b of boxes) {
+    return boxes;
+  }
+  function drawHeaders(parent, def, parts) {
+    const g = el('g', { class: 'bv-headers' }, parent), U = def.unitsPerMm;
+    for (const b of headerBoxes(def, parts)) {
       const [ax, ay] = def.toUnits(b.x1, b.y1), [bx, by] = def.toUnits(b.x2, b.y2);
       const x = Math.min(ax, bx), y = Math.min(ay, by), w = Math.abs(bx - ax), h = Math.abs(by - ay);
       el('rect', { x: +x.toFixed(2), y: +y.toFixed(2), width: +w.toFixed(2), height: +h.toFixed(2), rx: 0.3 * U, class: b.male ? 'hdr-m' : 'hdr-f' }, g);
@@ -559,5 +563,5 @@ window.PinodeBoard = (function () {
     return invert ? null : 0;
   }
 
-  return { create, viewTransform, ledLevel };
+  return { create, viewTransform, ledLevel, headerBoxes };
 })();

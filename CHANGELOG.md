@@ -4,8 +4,13 @@ All notable changes to ElectriCAD. Downloads for each version are on the
 [Releases page](https://github.com/KinodeLLC/electricad/releases). The full
 design notes for each version are in [docs/ROADMAP.md](docs/ROADMAP.md).
 
-## Unreleased (0.9.7, in progress)
+## 0.9.7 — Real-looking boards, clones and 3D
 
+- 3D view: spin any board that has design-file geometry (UNO family, Mega,
+  Leonardo, Nano, Nano Every, the Feathers). Parts sit where the design files
+  put them at their package's standard height; silkscreen, markings and live
+  pins are painted on; hover a part for its box. Boards without that geometry
+  keep the flat front and back. Uses three.js 0.159 (MIT), loaded on demand.
 - "Report wrong image" is now a clear bordered button with a flag icon under
   the board picture.
 - Board drawings now carry the real silkscreen from the makers' design files:

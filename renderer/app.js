@@ -2358,21 +2358,29 @@
     is.style.display = imgs.length > 1 && BV.mode !== 'drawn' ? '' : 'none';
     $('boardOpacity').style.display = BV.mode === 'overlay' && image ? '' : 'none';
     $('boardOpacity').value = String(Math.round(BV.opacity * 100));
+    const can3d = !!(window.PinodeBoard3D && PinodeBoard3D.supported(def));
+    const in3d = BV.mode === '3d' && can3d;
     for (const b of $('boardMode').querySelectorAll('button')) {
       b.classList.toggle('on', b.dataset.m === BV.mode);
-      b.disabled = b.dataset.m !== 'drawn' && !imgs.length;
+      b.disabled = b.dataset.m === '3d' ? !can3d : b.dataset.m !== 'drawn' && !imgs.length;
+      if (b.dataset.m === '3d') b.title = can3d ? 'Spin the board in 3D: parts placed from the design files, the top and back painted from the drawing, live pins included'
+        : 'No 3D for this board: it has no design-file geometry, so only the flat front and back are shown';
     }
+    is.style.display = imgs.length > 1 && BV.mode !== 'drawn' && !in3d ? '' : 'none';
+    $('boardFace').style.display = in3d ? 'none' : '';
+    $('boardRot').style.display = in3d ? 'none' : '';
     $('boardFace').textContent = BV.face === 'back' ? 'Back' : 'Front';
     $('boardFace').classList.toggle('on', BV.face === 'back');
     $('boardRot').textContent = '⟳ ' + BV.rot + '°';
     if (S.board && S.board.destroy) S.board.destroy();
-    S.board = PinodeBoard.create($('boardHost'), def, onPinHover, {
-      mode: imgs.length ? BV.mode : 'drawn', face: BV.face, rot: BV.rot, image, opacity: BV.opacity, battery: BV.battery || 'none',
+    const bopts = {
+      mode: imgs.length && BV.mode !== '3d' ? BV.mode : 'drawn', face: BV.face, rot: BV.rot, image, opacity: BV.opacity, battery: BV.battery || 'none',
       parts: boardPartsNow(), onPart: onBoardPart, silk: (window.PINODE_BOARD_SILK || {})[boardPartsKey()],
-      title: rev ? (/^(Feather|Pico)/.test(rev.name) ? rev.name : 'Arduino ' + rev.name.replace(/^Arduino /, '')) : def.name });
+      title: rev ? (/^(Feather|Pico)/.test(rev.name) ? rev.name : 'Arduino ' + rev.name.replace(/^Arduino /, '')) : def.name };
+    S.board = in3d ? PinodeBoard3D.create($('boardHost'), def, bopts) : PinodeBoard.create($('boardHost'), def, onPinHover, bopts);
     $('boardBattery').style.display = S.board.hasCharge ? '' : 'none';
     $('boardBattery').value = BV.battery || 'none';
-    if (BV.mode !== 'drawn' && !imgs.length) {
+    if (BV.mode !== 'drawn' && BV.mode !== '3d' && !imgs.length) {
       const n = document.createElement('div');
       n.className = 'bv-note';
       n.textContent = (base.revisions ? 'No picture of the ' + BV.face + ' of this board yet' : 'No checked picture of this board yet') + ', showing the drawing';
@@ -2381,7 +2389,9 @@
     // credit for the picture on screen, or where the drawing comes from
     const cr = $('boardCredit');
     cr.innerHTML = '';
-    if (image && (BV.mode !== 'drawn')) {
+    if (in3d) {
+      cr.textContent = 'Parts placed from ' + (base.geo ? base.geo.source : 'the design files') + '; heights are each package\'s standard height';
+    } else if (image && (BV.mode !== 'drawn')) {
       cr.append((image.kind === 'photo' ? 'Photo: ' : 'Image: ') + image.credit + ', ');
       const a = document.createElement('a'); a.href = '#'; a.textContent = image.license; a.title = image.source;
       a.addEventListener('click', (e) => { e.preventDefault(); api.openExternal(image.source); });
@@ -5308,6 +5318,10 @@ void loop()  { ELECTRICAD_TICK(); /* your code */ }</pre>
     docMarkdown(box.querySelector('.md-preview'), md);
   }
   const WHATS_NEW = [
+    ['🧊 Spin the board in 3D (0.9.7)', 'Press 3D on the Live Board to turn the board any way you like: drag to spin, wheel to zoom, Top, Tilt and Bottom to jump. Every part sits where the design files put it, at its package\'s real height, with the silkscreen, markings and live pins painted on. Hover a part for its box. Boards with no design files stay flat (front and back).'],
+    ['🖼 Real boards (0.9.7)', 'The drawn boards now carry the real silkscreen (pin labels, PWM / COMMUNICATION / POWER, MADE IN ITALY, the Feather art), their real colour and black header plastic. The UNO R3 has a real photo, cropped to the board.'],
+    ['🧩 Clone boards (0.9.7)', 'Pick a clone in the revision menu: the blue CH340G UNO, the black Mega 2560 + WiFi (HW-888) with front and back photos, and the blue CH340G and USB-C Megas. Where no photo or design file exists, only what every clone shares is drawn, never guessed parts.'],
+    ['⚑ Report wrong image (0.9.7)', 'The report link under the board is now a clear button.'],
     ['🔍 Every component (0.9.6)', 'Every resistor, capacitor, chip and connector on the drawn boards now comes from the maker\'s design files. Hover any of them, on the board, the wiring canvas or the PCB, to see what it is and what it does.'],
     ['🗂 Part cards and buy links (0.9.6)', 'Details opens a full card: part number, maker, package, connections, a close-up from the board picture, live LCSC specs, prices, stock and the datasheet. LCSC, Digi-Key and Mouser links open the shop page; nothing is ever ordered for you.'],
     ['🏷 Factory markings (0.9.6)', 'Chips carry their names, electrolytic cans their µF, crystals their frequency, diodes their code. Only where the print is known: tiny chip parts have none and date codes change per batch.'],

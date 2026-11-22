@@ -164,7 +164,9 @@ im=im.resize((W,H),Image.LANCZOS)
 out=Image.new('RGBA',(W,H),(233,238,240,0)); out.putalpha(im); out.save(d['file'],optimize=True)
 print(W,H)`;
   const wh = execFileSync('python3', ['-c', py], { input: JSON.stringify({ rects, box, file }) }).toString().trim().split(' ').map(Number);
-  return { src: 'img/silk/' + path.basename(file), box: [box[0], box[1], box[0] + (wh[0]) / 20, box[1] + 0], w: wh[0] / 20, h: wh[1] / 20, x: box[0], y: box[3] };
+  // inlined, so the picture also works where a page can't fetch files (the 3D view paints it)
+  const png = fs.readFileSync(file); fs.unlinkSync(file);
+  return { src: 'data:image/png;base64,' + png.toString('base64'), box: [box[0], box[1], box[0] + (wh[0]) / 20, box[1] + 0], w: wh[0] / 20, h: wh[1] / 20, x: box[0], y: box[3] };
 }
 
 const SOURCES = {
@@ -181,8 +183,7 @@ const SOURCES = {
 module.exports = { silk, arcPts };
 if (require.main === module) {
   const all = {};
-  const imgDir = path.join(__dirname, '..', 'renderer', 'img', 'silk');
-  fs.mkdirSync(imgDir, { recursive: true });
+  const imgDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'silk-'));
   for (const [k, f] of Object.entries(SOURCES)) {
     const sk = silk(f);
     for (const sd of ['top', 'bottom']) {

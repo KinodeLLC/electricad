@@ -203,7 +203,7 @@
         <div class="board-tools">
           <select id="boardRev" class="input slim" title="Board revision: pictures, LEDs and pin names follow it"></select>
           <span class="seg" id="boardMode">
-            <button data-m="drawn" title="Drawing, to scale from the board's CAD files">Drawn</button><button data-m="image" title="Real picture with live pins on it">Image</button><button data-m="both" title="Drawing and picture side by side">Both</button><button data-m="overlay" title="Drawing laid over the picture">Overlay</button>
+            <button data-m="drawn" title="Drawing, to scale from the board's CAD files">Drawn</button><button data-m="image" title="Real picture with live pins on it">Image</button><button data-m="both" title="Drawing and picture side by side">Both</button><button data-m="overlay" title="Drawing laid over the picture">Overlay</button><button data-m="3d" title="Spin the board in 3D: parts placed from the design files, the top and back painted from the drawing, live pins included">3D</button>
           </span>
           <select id="boardImg" class="input slim" title="Which picture"></select>
           <input id="boardOpacity" type="range" min="10" max="90" value="50" title="Drawing opacity over the picture">
@@ -263,6 +263,7 @@
   <script src="boardsilk.js"></script>
   <script src="board.js"></script>
   <script src="parttip.js"></script>
+  <script src="board3d.js"></script>
   <script src="sim.js"></script>
   <script src="history.js"></script>
   <script src="partlib.js"></script>

@@ -3,6 +3,26 @@
 Target: Visual Studio-grade depth, every feature justified by microcontroller
 work. Phases ordered so each ships something usable.
 
+## 0.9.7 — Real-looking boards, clones, 3D
+
+- Silkscreen from the design files (tools/extract-board-silk.js →
+  renderer/boardsilk.js): Eagle 21/25 top, 22/26 bottom (swapped for mirrored
+  parts), smashed NAME/VALUE, texts outside the outline dropped, Adafruit
+  bitmap layers 200 (top) / 201 (bottom, never swapped) rasterised to inline
+  PNGs. Drawn with Eagle's readable-text rule. Our pin labels hide under it.
+- Solder-mask colour per board/revision (def.mask / rev.mask), sheen, header
+  plastic from the pins (2.54 mm runs) plus 2×3 ICSP footprints with no pins.
+- Photos: genuine UNO R3, blue CH340G UNO clone, HW-888 front + back, from
+  Wikimedia Commons (CC BY-SA 4.0), rectified on header socket points and
+  clipped to the outline + connectors + headers.
+- Clone revisions (rev.clone): Uno clone-ch340, Mega hw888 / clone-ch340 /
+  clone-usbc. No parts table; decor only where seen in a photo.
+- 3D (renderer/board3d.js, three.js 0.159 loaded on demand): PCB extruded
+  from the outline with holes, faces painted from hidden front/back 2D views
+  (live), parts as bodies at package-standard heights, headers, USB/jack/
+  button. Not done: STEP models (only the R4s publish one), photo textures.
+- Next: 0.9.8 simulator (animated current, damage), 0.9.9 AI copilot.
+
 ## 0.9.6 — Every component, hover box and full card
 
 - Every fitted part on the drawn boards (541 across 12 boards/revisions) from

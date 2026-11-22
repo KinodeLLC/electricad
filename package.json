@@ -1,7 +1,7 @@
 {
   "name": "electricad",
   "productName": "ElectriCAD",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "The hardware IDE that can see your pins. Arduino + Raspberry Pi, live board views, native AI.",
   "main": "main/main.js",
   "scripts": {
@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "monaco-editor": "^0.50.0",
-    "serialport": "^12.0.0"
+    "serialport": "^12.0.0",
+    "three": "0.159.0"
   },
   "author": "Kinode LLC",
   "build": {

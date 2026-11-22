@@ -62,9 +62,21 @@ and mounting hole is where it is on the real board. Other boards show their pins
   slider sets how see-through it is). Pictures are official Arduino images or
   openly licensed photos, straightened so every pad lands on its pin. The
   credit and licence are under the picture.
+- **3D**: spin the board. Drag to turn it any way, the wheel zooms, Top /
+  Tilt / Bottom jump to a view and a double-click resets. Parts sit where the
+  makers' design files put them, at their package's standard height (an 0603
+  resistor 0.5 mm, a female header 8.5 mm); the silkscreen, markings and live
+  pins are painted on and update as the board runs. Hover a part for its box.
+  Boards without design-file geometry (ESP32 DevKit, NodeMCU, Pico, Pi) have
+  no 3D and keep the flat front and back.
 - **Revision**: UNO R3, R4 Minima and R4 WiFi have their own picture, LEDs and
   pin names. It follows the board you pick in the toolbar, and you can change
-  it by hand.
+  it by hand. Clones are listed too (blue CH340G UNO, Mega 2560 + WiFi HW-888,
+  blue CH340G and USB-C Megas); detection always picks the genuine board, so
+  choose the clone yourself. A clone with no photo or design file shows only
+  what all of them share (outline, holes, headers), not guessed parts.
+- **Silkscreen**: the drawn boards carry the real printing from the design
+  files, so the drawing's own pin labels are hidden on those boards.
 - **Front / Back**: turn the board over. Everything is mirrored, exactly as you
   see it when you flip the real board left to right. Parts on the top side are
   drawn as faint outlines.
