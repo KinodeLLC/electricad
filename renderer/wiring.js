@@ -407,6 +407,25 @@ window.PinodeWiring = (function () {
     return true;
   }
 
+  // ---- hover box for a part on the canvas -----------------------------------
+  function canvasPartTip(part, def2) {
+    const L = part.lib || {}, info = PART_INFO[part.type] || {};
+    const first = (t) => { const m = /^[^.]*\.(?=\s|$)/.exec(t || ''); return m ? m[0] : t || ''; };
+    const sim = [];
+    if (part.r != null) sim.push(U.ohms ? U.ohms(part.r) : part.r + ' Ω');
+    if (part.vout != null) sim.push(part.vout + ' V out');
+    if (part.type === 'led' && part.color) sim.push(part.color);
+    return {
+      title: part.name || (def2 && def2.name) || part.type,
+      sub: L.lcsc ? L.lcsc : (part.name && def2 && def2.name !== part.name ? def2.name : ''),
+      role: first(L.desc || info.how) || (def2 && def2.name) || part.type,
+      rows: [['Part', L.mfr || ''], ['Maker', L.maker || ''], ['Package', L.pkg || ''], ['Value', sim.join(' · ')], ['Designed for', info.volts || '']],
+      buy: L.mfr || (SWAP_QUERY[part.type] ? SWAP_QUERY[part.type](part) : (def2 && def2.name) || part.name),
+      lcsc: L.lcsc || null,
+      details: () => (part.lib && window.electricadPartDetails ? window.electricadPartDetails(part) : showPartInfo(part.type, part.name !== (def2 && def2.name) ? part.name : null))
+    };
+  }
+
   // ---- part info card: how it works, its voltage, how it fails --------------
   function showPartInfo(type, displayName, iface) {
     const info = PART_INFO[type] || {};
@@ -779,6 +798,14 @@ window.PinodeWiring = (function () {
       n.innerHTML = `<div class="whead"><span class="wled"></span><span class="wname">${esc(part.name)}</span>${sub}${libTag}${meter}` +
                     `<span class="winfobtn wnodei" title="How it works">ⓘ</span><span class="wx" title="Remove">✕</span></div>`;
       n.querySelector('.wx').addEventListener('click', () => removePart(part.uid));
+      // hover box: what this part is, with Details and buy links
+      const head = n.querySelector('.whead');
+      head.addEventListener('mouseenter', (e) => {
+        if (!window.PinodePartTip || e.buttons) return;
+        PinodePartTip.show(canvasPartTip(part, def2), e.clientX, e.clientY);
+      });
+      head.addEventListener('mouseleave', () => window.PinodePartTip && PinodePartTip.hideSoon());
+      head.addEventListener('mousedown', () => window.PinodePartTip && PinodePartTip.hide());
       n.querySelector('.whead').addEventListener('mousedown', () => {
         if (selPart !== part.uid) {
           selPart = part.uid;
@@ -1106,6 +1133,8 @@ window.PinodeWiring = (function () {
     placeLibPart,
     swapLibPart,
     swapInfo,
-    showPartInfo
+    showPartInfo,
+    // the hover box for a canvas part, for the PCB view
+    partTip(uid) { const p = model && model.parts.find((x) => x.uid === Number(uid)); return p ? canvasPartTip(p, P.defOf(p) || partDef(p.type)) : null; }
   };
 })();

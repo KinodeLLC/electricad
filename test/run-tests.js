@@ -1328,6 +1328,60 @@ t('boards: onboard LEDs sit where the CAD puts them and act like the real ones',
   // Pico W: the LED is on the wireless chip, shown as not readable
   assert(R.withRevision(B.pico, 'picow').def.decor.some((d) => d.kind === 'led' && d.unreadable && d.tele == null));
 });
+t('boards: every component comes from the makers\' design files, marked only where the print is known', () => {
+  require('../renderer/boardparts.js');
+  const P = global.window.PINODE_BOARD_PARTS, SRC = global.window.PINODE_BOARD_PARTS_SOURCE;
+  const B = global.window.PINODE_BOARDS;
+  const keys = ['uno/r3', 'uno/r4minima', 'uno/r4wifi', 'mega/rev3', 'leonardo/rev3', 'nano/v3', 'nanoevery/every', 'featheresp32', 'featherrp2040', 'featherm0/basic', 'featherm0/express', 'featherm4'];
+  for (const k of keys) {
+    const list = P[k], def = B[k.split('/')[0]];
+    assert(list && list.length > 20, k + ' has its parts');
+    assert(SRC[k], k + ' names its source');
+    assert.strictEqual(new Set(list.map((c) => c.ref)).size, list.length, k + ' refs unique');
+    for (const c of list) {
+      // on the board (a USB socket or jack may overhang the edge a little)
+      const [x1, y1, x2, y2] = c.box;
+      assert(x2 > x1 && y2 > y1, k + ' ' + c.ref + ' box');
+      assert(x1 > -8 && y1 > -3 && x2 < def.geo.w + 3 && y2 < def.geo.h + 3, k + ' ' + c.ref + ' on the board');
+      // nothing that is not fitted: test points, fiducials, DNP, logos
+      assert(!/^(TP|FID|Fiducial)/.test(c.ref) && !/DNP/.test(c.value || ''), k + ' ' + c.ref + ' fitted');
+      // the print: chips, cans, crystals and diode codes only, never tiny passives
+      if (c.mark) assert(/^(ic|module|ecap|xtal|diode)$/.test(c.kind), k + ' ' + c.ref + ' marked');
+      if (/^(cap|res|rarray)$/.test(c.kind)) assert(!c.mark, k + ' ' + c.ref);
+      assert(c.role, k + ' ' + c.ref + ' says what it does');
+    }
+  }
+  const get = (k, ref) => P[k].find((c) => c.ref === ref);
+  assert.strictEqual(get('mega/rev3', 'IC3').mpn, 'ATMEGA2560-16AU');
+  assert(/Main microcontroller/.test(get('mega/rev3', 'IC3').role) && get('mega/rev3', 'IC3').note);
+  assert.strictEqual(get('mega/rev3', 'IC4').mpn, 'ATMEGA16U2-MUR');
+  assert.strictEqual(get('mega/rev3', 'C13').mpn, 'GRM188R61E105KA12D');          // '1uF_0603/GRM…' cleaned
+  assert.strictEqual(get('mega/rev3', 'RN1').mpn, 'CAY16-103J4LF');               // '064R_10K_/_CAY16…' cleaned
+  assert.deepStrictEqual(get('mega/rev3', 'PC1').mark, ['47']);                   // the can's µF; voltage unknown, not drawn
+  assert.deepStrictEqual(get('uno/r3', 'D1').mark, ['M7']);
+  assert(get('uno/r3', 'Y1').role.startsWith('16 MHz clock for the ATMEGA16U2'));
+  assert(get('uno/r3', 'C5').role.startsWith('Auto-reset'));
+  // the Leonardo carries the QFN (U1); the TQFP footprint around it (U2) is empty
+  assert(get('leonardo/rev3', 'U1') && !get('leonardo/rev3', 'U2') && get('leonardo/rev3', 'U1').mpn === 'ATMEGA32U4-MU');
+  assert.strictEqual(get('uno/r4wifi', 'U1').mpn, 'R7FA4M1AB3CFM#AA0');
+  assert.deepStrictEqual(get('uno/r4wifi', 'U1').mark, ['R7FA4M1AB3CFM']);        // packing suffix is not printed
+  assert.strictEqual(P['uno/r4wifi'].filter((c) => /^\d+$/.test(c.ref)).length, 96); // the matrix
+  assert.strictEqual(get('uno/r4minima', 'R26').value, '13k7');                   // value from the BOM description
+  assert.deepStrictEqual(get('featherrp2040', 'IC1').mark, ['RP2-B2']);
+  assert.strictEqual(get('nano/v3', 'IC1').side, 'bottom');                       // the FT232RL is under the Nano
+  assert(!get('nanoevery/every', 'D3'), 'DNP diode left out');
+  // drawn and hoverable: bodies, the print and one hit area per part on the side in view
+  delete require.cache[require.resolve('../renderer/board.js')];
+  require('../renderer/board.js');
+  const fs = require('fs');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'board.js'), 'utf8');
+  assert(/function drawParts/.test(src) && /function partHotspots/.test(src) && /bp-hit/.test(src));
+  const tip = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'parttip.js'), 'utf8');
+  // buy links only open pages: no order or upload call anywhere in the hover box or the card
+  assert(/lcsc\.com/.test(tip) && /digikey\.com/.test(tip) && /mouser\.com/.test(tip));
+  assert(!/order|upload|fetch\(/i.test(tip.replace(/nothing is ever ordered|nothing is ordered|never ordered/gi, '')));
+});
+
 t('telemetry: NeoPixel colours and the R4 matrix frame come through', () => {
   const T = require('../main/telemetry.js');
   const s = T.serialize(T.parseLine('~PN1|t=9|m=0|o=0|d=0|p=|n=16:FF8000,000010|x=0102030405060708090A0B0C'));

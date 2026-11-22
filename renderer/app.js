@@ -2368,6 +2368,7 @@
     if (S.board && S.board.destroy) S.board.destroy();
     S.board = PinodeBoard.create($('boardHost'), def, onPinHover, {
       mode: imgs.length ? BV.mode : 'drawn', face: BV.face, rot: BV.rot, image, opacity: BV.opacity, battery: BV.battery || 'none',
+      parts: boardPartsNow(), onPart: onBoardPart,
       title: rev ? (/^(Feather|Pico)/.test(rev.name) ? rev.name : 'Arduino ' + rev.name.replace(/^Arduino /, '')) : def.name });
     $('boardBattery').style.display = S.board.hasCharge ? '' : 'none';
     $('boardBattery').value = BV.battery || 'none';
@@ -2392,6 +2393,211 @@
     if (S.lastPins && S.lastPins.length) S.board.paint(S.lastPins, (S.lastSnap && S.lastSnap.analog) || [], S.lastSnap);
     updateBoardPower();
   }
+  // ---- components on the board: hover box and full card ------------------------
+  function boardPartsKey() {
+    const { rev } = currentBoard();
+    const id = S.boardDefId;
+    const all = window.PINODE_BOARD_PARTS || {};
+    return rev && all[id + '/' + rev.id] ? id + '/' + rev.id : all[id] ? id : null;
+  }
+  function boardPartsNow() { const k = boardPartsKey(); return k ? window.PINODE_BOARD_PARTS[k] : null; }
+  const BP_KIND = { ic: 'Chip', module: 'Module', cap: 'Ceramic capacitor', ecap: 'Capacitor', res: 'Resistor', rarray: 'Resistor array',
+    led: 'LED', rgb: 'NeoPixel', xtal: 'Crystal / resonator', diode: 'Diode', tvs: 'ESD protection', fet: 'Transistor', fuse: 'Fuse', ferrite: 'Ferrite bead',
+    ind: 'Inductor', button: 'Button', jumper: 'Solder jumper', usb: 'USB connector', jack: 'Power jack', conn: 'Connector' };
+  function bpKind(c) { return c.kind === 'ecap' ? (/PANASONIC/.test(c.pkg || '') ? 'Aluminium electrolytic capacitor' : 'Tantalum capacitor') : BP_KIND[c.kind] || 'Part'; }
+  function bpSize(c) { const m = /(0201|0402|0603|0805|1206|1210|1812)/.exec(c.pkg || '') || /\b(0402|0603|0805|1206)\b/.exec(c.desc || ''); return m ? m[1] : ''; }
+  function bpRole(c) {
+    const l = c.led;
+    if (l) {
+      if (l.rgb) return 'NeoPixel on pin ' + l.tele + ': shows the colour your sketch sets';
+      if (l.role === 'power') return 'The ' + l.label + ' LED: lit while the board has power';
+      if (l.role === 'charge') return 'The ' + l.label + ' LED: lit while the battery charges';
+      if (l.role === 'tx') return 'The ' + l.label + ' LED: blinks when the board sends serial data';
+      if (l.role === 'rx') return 'The ' + l.label + ' LED: blinks when the board receives serial data';
+      if (l.tele != null) return 'The ' + l.label + ' LED: follows pin ' + l.tele + (l.invert ? ' (LOW = on)' : '');
+      if (l.note) return 'The ' + l.label + ' LED: ' + l.note;
+    }
+    if (/^\d+$/.test(c.ref) && c.kind === 'led') return 'LED matrix pixel ' + c.ref + ' of 96 (12 × 8)';
+    return c.role || bpKind(c);
+  }
+  function bpQuery(c) {
+    if (c.mpn) return c.mpn.split(' or ')[0];
+    const size = bpSize(c);
+    if (c.value && /^(cap|res|rarray|ind|ferrite|xtal|led|fuse)$/.test(c.kind)) return [c.value.replace(/\s+\d+V$/, ''), size, c.kind === 'cap' ? 'capacitor' : c.kind === 'res' ? 'resistor' : c.kind === 'rarray' ? 'resistor array' : c.kind === 'xtal' ? 'crystal' : c.kind === 'led' ? 'LED' : ''].filter(Boolean).join(' ');
+    return '';
+  }
+  function bpTip(c) {
+    return {
+      title: c.ref + ' · ' + (c.mpn || c.value || bpKind(c)),
+      sub: c.maker || (c.mpn && c.value ? c.value : ''),
+      role: bpRole(c),
+      rows: [['Part', c.mpn ? c.mpn : ''], ['Value', c.value], ['Package', c.pkg + (bpSize(c) && !c.pkg.includes(bpSize(c)) ? ' (' + bpSize(c) + ')' : '')], ['Marking', c.mark ? c.mark.join(' ') : '']],
+      buy: bpQuery(c),
+      details: () => showBoardPartCard(c)
+    };
+  }
+  function onBoardPart(c, what, e) {
+    if (what === 'enter') PinodePartTip.show(bpTip(c), e.clientX, e.clientY);
+    else if (what === 'leave') PinodePartTip.hideSoon();
+    else if (what === 'click') { PinodePartTip.hide(); showBoardPartCard(c); }
+  }
+  // what is printed on it, and what we can and cannot know from the files
+  function bpMarkingHtml(c) {
+    const lot = 'The date and lot code under it changes from batch to batch, so it is not drawn.';
+    if (c.mark && (c.kind === 'ic' || c.kind === 'module')) {
+      return `<div class="bpc-mark">${esc(c.mark.join(' '))}</div><div class="whint hint">${/^RP2-/.test(c.mark[0]) ? 'Printed on the chip.' : 'The drawing shows the part name from the design file. Big chips carry their name; the exact layout of the print is in the datasheet\'s marking section.'} ${lot}</div>`;
+    }
+    if (c.mark) return `<div class="bpc-mark">${esc(c.mark.join(' '))}</div><div class="whint hint">${c.kind === 'ecap' ? 'The capacitance printed on the can (µF). The design file does not give its voltage rating, so none is drawn.' : c.kind === 'xtal' ? 'The frequency printed on the can (MHz).' : 'The part\'s marking code.'}</div>`;
+    if (/^(cap|res|rarray|ferrite)$/.test(c.kind) && /0201|0402|0603|CAY16|RESPACK/.test((c.pkg || '') + (c.mpn || ''))) return '<div class="whint hint">No print: chip parts this small are not marked.</div>';
+    if (c.kind === 'led') return '<div class="whint hint">No print. The colour is in the part number' + (c.value ? ' (' + esc(c.value) + ')' : '') + '.</div>';
+    if (/^(conn|usb|jack|button|jumper)$/.test(c.kind)) return '<div class="whint hint">Not marked.</div>';
+    return '<div class="whint hint">Small packages carry a short marking code that the maker lists in the datasheet. The design file does not give it, so none is drawn.</div>';
+  }
+  async function showBoardPartCard(c) {
+    const key = boardPartsKey();
+    const src = (window.PINODE_BOARD_PARTS_SOURCE || {})[key] || '';
+    const { def } = currentBoard();
+    const q = bpQuery(c);
+    const ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal wide-modal part-modal';
+    const kv = (k, v) => (v ? `<div class="pd-kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>` : '');
+    const pics = (BOARD_IMAGES_FOR_CARD() || []).filter((i) => (i.face === 'back') === (c.side === 'bottom'));
+    box.innerHTML = `
+      <div class="modal-title">${esc(c.ref)} · ${esc(c.mpn || c.value || bpKind(c))} <span class="dim" style="padding:0">${esc(c.maker || '')}</span></div>
+      <div class="pd-sub">${esc(bpRole(c))}</div>
+      <div class="pd-grid">
+        <div>
+          ${kv('Type', bpKind(c))}${kv('Part number', c.mpn)}${kv('Maker', c.maker)}${kv('Value', c.value)}${kv('Package', c.pkg)}${kv('Description', c.desc)}
+          ${kv('Side', c.side === 'bottom' ? 'Bottom of the board' : 'Top of the board')}${c.pins ? kv('Pads', String(c.pins)) : ''}
+          ${c.note ? `<div class="whint danger">Check: ${esc(c.note)}</div>` : ''}
+          <div class="pd-h">Factory marking</div>${bpMarkingHtml(c)}
+          ${c.nets && c.nets.length ? `<div class="pd-h">Connected to</div><div class="bpc-nets">${c.nets.map((n) => `<span>${esc(n)}</span>`).join('')}</div>` : ''}
+          <div class="pd-h">From the catalogue</div>
+          <div class="bpc-cat"><p class="dim">${q ? 'Looking up ' + esc(q) + ' at LCSC…' : 'No part number in the design file for this one.'}</p></div>
+        </div>
+        <div>
+          <div class="pd-h">On the board</div>
+          <canvas class="bpc-photo" width="460" height="220"></canvas>
+          <div class="dim bpc-photo-note" style="padding:2px 0 8px"></div>
+          <div class="bpc-right"></div>
+        </div>
+      </div>
+      <div class="pd-foot dim">Part data from ${esc(src || 'the maker\'s design files')}. Buy links open the shop's page in your browser: ElectriCAD never orders parts or sends files for you.</div>
+      <div class="modal-btns">
+        <span class="bpc-ds"></span>
+        ${q ? PinodePartTip.buyLinks(q).map((l) => `<button class="action" data-url="${esc(l.url)}" data-shop="${l.id}">${esc(l.label)} ↗</button>`).join('') : ''}
+        ${c.mpn ? '<button class="action" data-a="copy">Copy part number</button>' : ''}
+        <button class="action" data-a="close">Close</button>
+      </div>`;
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+    const close = () => ov.remove();
+    ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(); });
+    box.addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.url) api.openExternal(b.dataset.url);
+      if (b.dataset.a === 'close') close();
+      if (b.dataset.a === 'copy') { navigator.clipboard.writeText(c.mpn).catch(() => {}); toast('Copied ' + c.mpn, 1200); }
+    });
+    drawBoardPartPicture(box.querySelector('.bpc-photo'), box.querySelector('.bpc-photo-note'), def, c, pics);
+    if (!q) return;
+    // live catalogue: the exact part when LCSC has it, else the closest matches
+    const cat = box.querySelector('.bpc-cat');
+    const res = await api.parts.search({ q, limit: 12 }).catch((e) => ({ error: e.message, rows: [] }));
+    if (!document.body.contains(box)) return;
+    const rows = (res && res.rows) || [];
+    const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const exact = c.mpn ? rows.find((r) => norm(r.mfr) === norm(q)) || rows.find((r) => norm(r.mfr).startsWith(norm(q)) && norm(q).length >= 6) : null;
+    if (!exact) {
+      cat.innerHTML = (res && res.error ? `<p class="dim">Catalogue unreachable (${esc(res.error)}). The buy links below still work.</p>` : '') +
+        (rows.length ? `<p class="dim">${c.mpn ? 'LCSC does not list ' + esc(q) + ' itself. Close matches:' : 'Generic part: matching catalogue parts.'}</p>` +
+          rows.slice(0, 4).map((r) => `<div class="catItem lcItem bpc-alt" data-lcsc="${esc(r.lcsc)}"><b>${esc(r.mfr)}</b> <span class="dim" style="padding:0">${esc(r.pkg || '')}</span><div class="lc-desc">${esc(r.desc || '')}</div><div class="cmeta"><span class="cprice">${money(r.price)}</span>${r.stock != null ? `<span class="cstock">${Number(r.stock).toLocaleString()} in stock</span>` : ''}<span class="dim" style="padding:0">${esc(r.lcsc)}</span></div></div>`).join('')
+          : !(res && res.error) ? '<p class="dim">No catalogue match. Try the buy links below.</p>' : '');
+      cat.querySelectorAll('[data-lcsc]').forEach((d) => d.addEventListener('click', () => { const r = rows.find((x) => x.lcsc === d.dataset.lcsc); openPartDetails(r.lcsc, r); }));
+      return;
+    }
+    const d = await api.parts.details(exact.lcsc, { row: exact }).catch((e) => ({ error: e.message }));
+    if (!document.body.contains(box)) return;
+    const info = (d && !d.error && d.info) || { lcsc: exact.lcsc, mfr: exact.mfr, pkg: exact.pkg, desc: exact.desc, stock: exact.stock, price: exact.price };
+    const ladder = (info.ladder || []).filter((l) => l.usd != null);
+    const specs = (info.params || []).filter((p) => p.name && p.value && p.value !== '-');
+    cat.innerHTML = `
+      ${kv('LCSC #', info.lcsc)}${kv('Catalogue name', info.mfr)}${info.stock != null ? kv('Stock', Number(info.stock).toLocaleString()) : ''}
+      ${ladder.length ? kv('Price', ladder.slice(0, 4).map((l) => l.qty + '+: ' + money(l.usd)).join(' · ')) : info.price != null ? kv('Price', money(info.price)) : ''}
+      ${d && d.offline ? '<div class="whint hint">Offline: saved copy.</div>' : ''}
+      <div class="pd-specs">${specs.slice(0, 14).map((p) => kv(p.name, p.value)).join('')}</div>`;
+    // the LCSC shop button goes straight to the product page now
+    const lb = box.querySelector('[data-shop="lcsc"]');
+    if (lb) lb.dataset.url = 'https://www.lcsc.com/product-detail/' + info.lcsc + '.html';
+    if (info.datasheet) {
+      box.querySelector('.bpc-ds').innerHTML = '<button class="action primary" data-url="' + esc(info.datasheet) + '">📄 Datasheet</button>';
+    }
+    const right = box.querySelector('.bpc-right');
+    const pins = d && d.part ? (PL.portsOf(d.part) || []) : [];
+    const padOf = (d && d.part && d.part.lib && d.part.lib.pads) || {};
+    right.innerHTML = `
+      ${d && d.fp && d.fp.def ? '<div class="pd-h">Footprint</div><canvas class="pd-fp" width="460" height="220"></canvas>' : ''}
+      ${pins.length ? `<div class="pd-h">Pinout</div><div class="pd-pins">${pins.map((p) => `<div class="pd-pin t-${esc(p.type)}"><b>${esc(padOf[p.id] || p.num || '')}</b><span>${esc(String(p.label).replace(/^\d+\s/, ''))}</span></div>`).join('')}</div>` : ''}
+      ${d && d.part ? '<button class="action" data-a="full" style="margin-top:8px">Open the full catalogue card</button>' : ''}`;
+    const fpc = right.querySelector('.pd-fp');
+    if (fpc) drawFootprint(fpc, d.fp.def, padOf);
+    const full = right.querySelector('[data-a="full"]');
+    if (full) full.addEventListener('click', () => { close(); showPartDetails(d.part, { info: d.info, fpDef: d.fp && d.fp.def, offline: d.offline, partial: d.partial }); });
+  }
+  function BOARD_IMAGES_FOR_CARD() {
+    const { rev } = currentBoard();
+    return (rev && rev.images) || [];
+  }
+  // a close-up of the part: from Arduino's picture of the same revision when
+  // there is one (front pictures for top parts, back photos for bottom ones),
+  // else from the drawing
+  function drawBoardPartPicture(cv, note, def, c, pics) {
+    const g = cv.getContext('2d');
+    g.fillStyle = '#0d0d0d'; g.fillRect(0, 0, cv.width, cv.height);
+    const U = def.unitsPerMm || 4, s = 5;
+    let [ax, ay] = def.toUnits(c.box[0], c.box[1]), [bx, by] = def.toUnits(c.box[2], c.box[3]);
+    // a bottom part is shown as seen from the back: the mirrored frame
+    if (c.side === 'bottom') { ax = def.w - ax; bx = def.w - bx; }
+    const pad = 3 * U;
+    let x1 = Math.min(ax, bx) - pad, y1 = Math.min(ay, by) - pad, w = Math.abs(bx - ax) + 2 * pad, h = Math.abs(by - ay) + 2 * pad;
+    // keep the canvas shape so nothing is stretched
+    const want = cv.width / cv.height;
+    if (w / h < want) { const nw = h * want; x1 -= (nw - w) / 2; w = nw; } else { const nh = w / want; y1 -= (nh - h) / 2; h = nh; }
+    const pic = pics.find((p) => p.kind === 'photo') || pics[0];
+    const outline = () => {
+      const k = cv.width / w;
+      g.strokeStyle = '#ffa500'; g.lineWidth = 2;
+      g.strokeRect((Math.min(ax, bx) - x1) * k, (Math.min(ay, by) - y1) * k, Math.abs(bx - ax) * k, Math.abs(by - ay) * k);
+    };
+    if (!pic) {
+      // from the live drawing on screen
+      const svg = $('boardHost').querySelector('svg');
+      note.textContent = 'From the drawing (no picture of this side yet).';
+      if (!svg) return;
+      const clone = svg.cloneNode(true);
+      clone.querySelectorAll('.bv-labels, .bv-hits').forEach((n) => n.remove());
+      const gg = clone.querySelector('g'); if (gg) gg.setAttribute('transform', c.side === 'bottom' ? `matrix(-1 0 0 1 ${def.w} 0)` : 'matrix(1 0 0 1 0 0)');
+      clone.setAttribute('viewBox', `0 0 ${def.w} ${def.h}`);
+      clone.setAttribute('width', def.w * s); clone.setAttribute('height', def.h * s);
+      const css = '.pcb{fill:#173420}.bp-ic{fill:#1b1b1d}.bp-module{fill:#b8bcc2}.bp-cap{fill:#b8956a}.bp-res,.bp-dark{fill:#181818}.bp-end{fill:#c9ccd0}.bp-xtal,.bp-can{fill:#cfd3d8}.bp-mark{fill:#ddd;font-family:monospace;font-weight:600}.bp-mark.dark{fill:#111}.pin-pad{fill:#c9a227}.led-lens{fill:#333}.hole{fill:#000}.usb{fill:#9aa0a6}';
+      const st = document.createElementNS('http://www.w3.org/2000/svg', 'style'); st.textContent = css; clone.insertBefore(st, clone.firstChild);
+      const img = new Image();
+      img.onload = () => { g.drawImage(img, x1 * s, y1 * s, w * s, h * s, 0, 0, cv.width, cv.height); outline(); };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone));
+      return;
+    }
+    note.textContent = (pic.kind === 'photo' ? 'Photo: ' : 'Image: ') + pic.credit + ' (' + pic.license + ')';
+    const img = new Image();
+    img.onload = () => {
+      // back pictures are stored as photographed, the same mirrored frame
+      g.drawImage(img, x1 * s, y1 * s, w * s, h * s, 0, 0, cv.width, cv.height);
+      outline();
+    };
+    img.src = pic.src;
+  }
+
   $('boardBattery').addEventListener('change', (e) => { BV.battery = e.target.value; saveBV(); if (S.board) S.board.setBattery(BV.battery); });
 
   // ---- onboard LEDs: power, simulator ------------------------------------------
@@ -5102,6 +5308,9 @@ void loop()  { ELECTRICAD_TICK(); /* your code */ }</pre>
     docMarkdown(box.querySelector('.md-preview'), md);
   }
   const WHATS_NEW = [
+    ['🔍 Every component (0.9.6)', 'Every resistor, capacitor, chip and connector on the drawn boards now comes from the maker\'s design files. Hover any of them, on the board, the wiring canvas or the PCB, to see what it is and what it does.'],
+    ['🗂 Part cards and buy links (0.9.6)', 'Details opens a full card: part number, maker, package, connections, a close-up from the board picture, live LCSC specs, prices, stock and the datasheet. LCSC, Digi-Key and Mouser links open the shop page; nothing is ever ordered for you.'],
+    ['🏷 Factory markings (0.9.6)', 'Chips carry their names, electrolytic cans their µF, crystals their frequency, diodes their code. Only where the print is known: tiny chip parts have none and date codes change per batch.'],
     ['💡 Onboard LEDs (0.9.5)', 'Every board LED is where it really is, in its real colour, and works like the real one: ON with power, L with its pin (dimmed by PWM), TX/RX with serial traffic and uploads, the Feather charge LED, NeoPixel colours and the UNO R4 WiFi LED matrix. Hover an LED to see what drives it.'],
     ['🪶 Feathers to scale (0.9.5)', 'The Feather ESP32, RP2040, M0 (Basic and Express) and M4 are now drawn from Adafruit\'s own board files, so every pin, LED and part is where it is on the real board.'],
     ['🧪 LEDs in the simulator (0.9.5)', 'No board plugged in? Press Run on the wiring canvas and the pins you set there light the board\'s LEDs. Live telemetry now also covers the UNO R4.'],

@@ -3,6 +3,28 @@
 Target: Visual Studio-grade depth, every feature justified by microcontroller
 work. Phases ordered so each ships something usable.
 
+## 0.9.6 — Every component, hover box and full card
+
+- Every fitted part on the drawn boards (541 across 12 boards/revisions) from
+  the makers' files: Arduino Eagle .brd (Uno R3, Mega, Leonardo, Nano),
+  Altium PcbDoc + BOM (UNO R4 Minima/WiFi), Nano Every BOM + placement,
+  Adafruit Feather .brd. tools/extract-board-parts.js → renderer/boardparts.js:
+  ref, kind, value, MPN (cleaned of library prefixes), maker, package, side,
+  body box (tDocu/tPlace + pads), nets, role.
+- Left out: test points, fiducials, logos, DNP/NM parts, the Leonardo's empty
+  TQFP footprint (photo and render show the QFN fitted).
+- Markings only where the print is known: chip/module part names (packing
+  suffixes stripped), the RP2040's RP2-B2, µF on aluminium cans, crystal
+  frequency, M7 diode codes. 0402/0603 passives are unmarked; date/lot codes
+  vary per batch and are not drawn; nothing is invented.
+- Hover any part on the board drawing (every view mode, front and back), the
+  wiring canvas or the PCB: name, part number, value, package, what it does,
+  Details and LCSC / Digi-Key / Mouser links (pages only, nothing ordered).
+- Details card: all of the above, connections (nets), the factory-marking
+  note, a close-up from Arduino's picture of that revision (or the drawing),
+  live LCSC specs, price breaks, stock, datasheet, footprint and pinout.
+- Next: 0.9.7 simulator (damage, animated current), 0.9.8 AI copilot.
+
 ## 0.9.5 — Onboard LEDs
 
 - Every board's LEDs from the makers' files: Arduino Eagle/Altium placement
@@ -19,7 +41,8 @@ work. Phases ordered so each ships something usable.
   checked against the charlieplex table and the nets).
 - Telemetry library 0.7.0: UNO R4 (Renesas PmnPFS), `n=` NeoPixels, `x=` matrix.
 - With no board streaming, a running wiring simulation drives the board LEDs.
-- Next: 0.9.6 simulator (damage, animated current), 0.9.7 AI copilot.
+- Next: 0.9.6 simulator (damage, animated current), 0.9.7 AI copilot
+  (moved to 0.9.7 / 0.9.8 when components came first).
 
 ## 0.9.4 — Real boards
 

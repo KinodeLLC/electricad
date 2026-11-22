@@ -10,6 +10,9 @@
 //   rot     0 | 90 | 180 | 270, clockwise
 //   image   { src, ... } from PinodeBoardImages, already in board units
 //   opacity drawing opacity over the image in overlay mode (0..1)
+//   parts   every component from the maker's design file (boardparts.js);
+//           drawn with their markings, and each one answers the mouse
+//   onPart  (part, 'enter' | 'move' | 'leave', event) for the hover box
 window.PinodeBoard = (function () {
   const NS = 'http://www.w3.org/2000/svg';
   const HISTORY = 240; // frames kept per pin (~12s at 20Hz)
@@ -82,10 +85,12 @@ window.PinodeBoard = (function () {
           if (!T.back) el('circle', { cx: d.x + d.w / 2, cy: d.y + d.h / 2, r: Math.min(d.w, d.h) * 0.28, class: 'btn-cap' }, draw);
         } else if (d.kind === 'chip') {
           const cx = d.x + d.w / 2, cy = d.y + d.h / 2;
-          el('rect', { x: d.x, y: d.y, width: d.w, height: d.h, rx: 1.5, class: 'chip-body' + cls,
+          // with the real parts known, the chips are drawn from them instead
+          if (!(opt.parts && opt.parts.length)) el('rect', { x: d.x, y: d.y, width: d.w, height: d.h, rx: 1.5, class: 'chip-body' + cls,
             transform: d.rot45 ? `rotate(45 ${cx} ${cy})` : '' }, draw);
         }
       }
+      if (opt.parts && def.toUnits) drawParts(draw, def, opt.parts, T);
     }
     // LEDs light up in every mode; on the back they are hidden by the board.
     // Each one is a dark lens with a glow layer whose opacity is the light.
@@ -128,6 +133,8 @@ window.PinodeBoard = (function () {
       }
     }
 
+    if (opt.parts && def.toUnits) partHotspots(g, def, opt.parts, T, opt);
+
     const labels = el('g', { class: 'bv-labels' }, svg);
     const text = (x, y, s, cls, anchor, rot) => {
       const t = el('text', { x: +x.toFixed(2), y: +y.toFixed(2), class: cls, 'text-anchor': anchor || 'middle' }, labels);
@@ -138,7 +145,7 @@ window.PinodeBoard = (function () {
     // chip and LED captions stay upright whatever the rotation
     if (showDrawing && !T.back) {
       for (const d of def.decor || []) {
-        if (d.kind === 'chip' && d.label) {
+        if (d.kind === 'chip' && d.label && !(opt.parts && opt.parts.length)) {
           const [x, y] = T.pt(d.x + d.w / 2, d.y + d.h / 2);
           text(x, y + 2, d.label, 'pin-label' + (d.small ? ' small' : ''));
         } else if (d.kind === 'led' && d.label) {
@@ -210,6 +217,81 @@ window.PinodeBoard = (function () {
     svg.querySelectorAll('[data-rgb]').forEach((led) => shared.rgb.push(led));
     svg.querySelectorAll('[data-px]').forEach((px) => { shared.matrix[Number(px.dataset.px)] = shared.matrix[Number(px.dataset.px)] || []; shared.matrix[Number(px.dataset.px)].push(px); });
     return svg;
+  }
+
+  // ---- components from the design files ---------------------------------------
+  // body rectangle of a part in board units
+  function partRect(def, c) {
+    const [ax, ay] = def.toUnits(c.box[0], c.box[1]), [bx, by] = def.toUnits(c.box[2], c.box[3]);
+    return { x: Math.min(ax, bx), y: Math.min(ay, by), w: Math.abs(bx - ax), h: Math.abs(by - ay) };
+  }
+  const onSide = (c, T) => (c.side || 'top') === (T.back ? 'bottom' : 'top');
+  // parts drawn elsewhere (LEDs, connectors, USB, jack, button) only get a hotspot
+  const BODY = { ic: 'bp-ic', module: 'bp-module', cap: 'bp-cap', res: 'bp-res', rarray: 'bp-res', ecap: 'bp-ecap', xtal: 'bp-xtal',
+    diode: 'bp-dark', tvs: 'bp-dark', fet: 'bp-dark', fuse: 'bp-fuse', ferrite: 'bp-dark', ind: 'bp-ind' };
+  function drawParts(parent, def, parts, T) {
+    const top = el('g', { class: 'bv-parts' }, parent);
+    for (const c of parts) {
+      if (!c.box || !onSide(c, T) || !BODY[c.kind]) continue;
+      const r = partRect(def, c);
+      const cls = 'bp ' + BODY[c.kind];
+      // parts placed at an angle (the Nano Every's chips sit at 45°)
+      const odd = ((c.rot || 0) % 90 + 90) % 90;
+      const layer = odd ? el('g', { transform: `rotate(${odd} ${+(r.x + r.w / 2).toFixed(2)} ${+(r.y + r.h / 2).toFixed(2)})` }, top) : top;
+      if (c.kind === 'ecap' && /PANASONIC/.test(c.pkg || '')) {
+        // aluminium can seen from above: a round lid on a square base
+        el('rect', { x: r.x, y: r.y, width: r.w, height: r.h, rx: 1, class: 'bp bp-dark' }, layer);
+        el('circle', { cx: r.x + r.w / 2, cy: r.y + r.h / 2, r: Math.min(r.w, r.h) * 0.46, class: 'bp bp-can' }, layer);
+      } else {
+        el('rect', { x: r.x, y: r.y, width: r.w, height: r.h, rx: c.kind === 'xtal' ? Math.min(r.w, r.h) / 2.4 : 0.6, class: cls }, layer);
+        if (/^(cap|res|rarray|ferrite|fuse)$/.test(c.kind)) {
+          // metal end caps along the long side
+          const along = r.w >= r.h, e = (along ? r.w : r.h) * 0.18;
+          if (along) { el('rect', { x: r.x, y: r.y, width: e, height: r.h, class: 'bp bp-end' }, layer); el('rect', { x: r.x + r.w - e, y: r.y, width: e, height: r.h, class: 'bp bp-end' }, layer); }
+          else { el('rect', { x: r.x, y: r.y, width: r.w, height: e, class: 'bp bp-end' }, layer); el('rect', { x: r.x, y: r.y + r.h - e, width: r.w, height: e, class: 'bp bp-end' }, layer); }
+        }
+      }
+      if (c.mark) markText(layer, r, c.mark, c.kind === 'ecap' || c.kind === 'xtal' || c.kind === 'module' ? 'bp-mark dark' : 'bp-mark', T.back);
+    }
+  }
+  // the factory print, sized to the body, along its long side
+  function markText(parent, r, lines, cls, back) {
+    const s = lines.join(' ');
+    const vert = r.h > r.w * 1.25;
+    const len = vert ? r.h : r.w, thick = vert ? r.w : r.h;
+    // printed text on real parts is about 1–1.5 mm tall
+    const fs = Math.max(0.9, Math.min(thick * 0.42, (len * 0.86) / (s.length * 0.62), 6));
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    let tr = vert ? `rotate(-90 ${+cx.toFixed(2)} ${+cy.toFixed(2)})` : '';
+    // on the back the board is mirrored; print is read the right way round
+    if (back) tr = `translate(${+(2 * cx).toFixed(2)} 0) scale(-1 1) ` + tr;
+    const t = el('text', { x: +cx.toFixed(2), y: +(cy + fs * 0.35).toFixed(2), class: cls, 'text-anchor': 'middle', 'font-size': fs.toFixed(2), transform: tr }, parent);
+    t.textContent = s;
+  }
+  // an invisible hit area per part (at least 1.4 mm, small parts on top)
+  function partHotspots(parent, def, parts, T, opt) {
+    const layer = el('g', { class: 'bv-hits' }, parent);
+    const U = def.unitsPerMm || 4, min = 1.4 * U;
+    const leds = (def.decor || []).filter((d) => d.kind === 'led' || d.kind === 'rgb');
+    const list = parts.filter((c) => c.box && onSide(c, T)).map((c) => ({ c, r: partRect(def, c) }))
+      .sort((a, b) => b.r.w * b.r.h - a.r.w * a.r.h);
+    for (const { c, r } of list) {
+      const w = Math.max(r.w, min), h = Math.max(r.h, min);
+      const hit = el('rect', { x: r.x + r.w / 2 - w / 2, y: r.y + r.h / 2 - h / 2, width: w, height: h, rx: 0.8, class: 'bp-hit' }, layer);
+      hit.dataset.ref = c.ref;
+      // an onboard LED from the board definition: carry what it shows
+      if ((c.kind === 'led' || c.kind === 'rgb') && !c.led) {
+        const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+        const d = leds.find((l) => Math.hypot(l.x - cx, l.y - cy) < 2.2 * U);
+        if (d) c.led = { label: d.label, tele: d.tele, role: d.role, invert: !!d.invert, color: d.color, note: d.note, rgb: d.kind === 'rgb' };
+      }
+      if (opt.onPart) {
+        hit.addEventListener('mouseenter', (e) => opt.onPart(c, 'enter', e));
+        hit.addEventListener('mousemove', (e) => opt.onPart(c, 'move', e));
+        hit.addEventListener('mouseleave', (e) => opt.onPart(c, 'leave', e));
+        hit.addEventListener('click', (e) => opt.onPart(c, 'click', e));
+      }
+    }
   }
 
   function create(host, def, onHover, opts) {

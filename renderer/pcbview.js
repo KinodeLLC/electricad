@@ -779,11 +779,33 @@ window.ElectriCADPcbView = (function () {
       drag.obj.x = sn(drag.ox + mouse.wx - drag.wx); drag.obj.y = sn(drag.oy + mouse.wy - drag.wy);
       drag.moved = true; draw(); return;
     }
+    if (!drag && !route) hoverTip(e);
     if (route) {
       const pad = padAt(mouse.wx, mouse.wy);
       route.next = pad ? [pad.x, pad.y] : constrain(route.pts[route.pts.length - 1], snapPt(mouse.wx, mouse.wy), e.shiftKey);
     }
     draw();
+  }
+  // hover box over a footprint: the same box as on the canvas, plus its footprint
+  let tipRef = null;
+  function hoverTip(e) {
+    const T = window.PinodePartTip;
+    if (!T) return;
+    const h = hit(mouse.wx, mouse.wy);
+    const ref = h && h.kind === 'comp' ? h.ref : null;
+    if (ref === tipRef) return;
+    tipRef = ref;
+    if (!ref) { T.hideSoon(); return; }
+    const c = net.comps.find((x) => x.ref === ref);
+    if (!c) return;
+    const fpName = typeof c.fp === 'string' ? c.fp.replace(/^K:[^:]*:/, '') : '';
+    const w = c.uid && window.PinodeWiring && window.PinodeWiring.partTip ? window.PinodeWiring.partTip(c.uid) : null;
+    const pl = L.place[ref] || {};
+    const where = [['Footprint', fpName], ['Side', pl.side === 'B' ? 'Bottom' : 'Top']];
+    if (c.check) where.push(['Check', c.check]);
+    T.show(w ? { ...w, title: c.ref + ' · ' + w.title, rows: where.concat(w.rows || []) }
+      : { title: c.ref + ' · ' + c.name, role: c.type === 'board' ? 'The board itself: its header pads on your PCB' : '', rows: where.concat([['Value', c.value]]), buy: c.mfr || '', lcsc: c.lcsc || null },
+    e.clientX, e.clientY);
   }
   function onUp() {
     if (drag && drag.obj && drag.moved) { hist.push(drag.snap); save(); refresh(); }
@@ -938,6 +960,8 @@ window.ElectriCADPcbView = (function () {
     window.addEventListener('mousemove', (e) => { if (isActive() && (drag || e.target === cv)) onMove(e); });
     window.addEventListener('mouseup', () => { if (isActive()) onUp(); });
     cv.addEventListener('wheel', onWheel, { passive: false });
+    cv.addEventListener('mouseleave', () => { tipRef = null; if (window.PinodePartTip) PinodePartTip.hideSoon(); });
+    cv.addEventListener('mousedown', () => { tipRef = null; if (window.PinodePartTip) PinodePartTip.hide(); });
     cv.addEventListener('dblclick', onDbl);
     cv.addEventListener('contextmenu', (e) => {
       e.preventDefault();

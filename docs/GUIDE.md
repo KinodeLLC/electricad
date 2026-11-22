@@ -72,6 +72,25 @@ and mounting hole is where it is on the real board. Other boards show their pins
 - **⚑ Report wrong image**: if a picture, pin or revision is wrong, this sends
   the exact picture, revision and view to Kinode.
 
+### Components on the board
+
+Every part on the drawn boards comes from the maker's own design files, so
+each resistor, capacitor, chip and connector is where it is on the real board.
+
+- **Hover** any part (drawing, picture, overlay, front or back) for a small
+  box: its reference, part number, value, package and what it does on the
+  board, for example "16 MHz clock for the ATMEGA16U2".
+- **Details** (or a click on the part) opens the full card: maker, package,
+  what it connects to, its factory marking, a close-up from the board picture,
+  and live specs, prices, stock, datasheet, footprint and pinout from LCSC.
+- **LCSC / Digi-Key / Mouser** open that shop's page for the part in your
+  browser. ElectriCAD never orders anything or sends files for you.
+- **Markings** are drawn only where the print is known: chip names, the
+  value on electrolytic cans, crystal frequencies and diode codes. Tiny chip
+  resistors and capacitors carry no print, and date codes change with every
+  batch, so they are not drawn.
+- The same hover box works on the wiring canvas and on the PCB.
+
 ### Onboard LEDs
 
 Every LED the real board has is drawn where it sits, in its real colour, and
