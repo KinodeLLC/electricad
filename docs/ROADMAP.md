@@ -3,6 +3,25 @@
 Target: Visual Studio-grade depth, every feature justified by microcontroller
 work. Phases ordered so each ships something usable.
 
+## 0.9.3 — Real parts, grid, bug reports
+
+- Parts view → JLCPCB / LCSC: live search (jlcsearch.tscircuit.com; resistor
+  values go to the full resistor table), LCSC detail on click, cache in
+  userData/parts-cache (offline + "My parts")
+- KiCad symbols + footprints built in (assets/kicad, CC-BY-SA 4.0, converted by
+  tools/kicad-lib.js); partlib.js maps catalogue → canvas part: pinout from the
+  KiCad symbol for that part number (exact / wildcard / per-package / packing
+  suffix, package family must agree), footprint by package or the symbol's own;
+  anything not matched is flagged, never guessed
+- Catalogue parts on the canvas, PCB (real footprint, pick another), BOM/CPL
+  with the C-number; simulator uses Vf, Vz, LDO vout/dropout, supply ratings
+- "Choose a real part" swaps a generic canvas part for a catalogue one, keeping wires
+- Grid on canvas + PCB (G / Shift+G / size), in-app bug + wrong-image reports
+  (main/bugreport.js → usekinode.app/api/bugreports)
+
+## Next: board photos (front/back, per revision), true-geometry drawings,
+## rotate/flip, revision picker; then 0.9.4 simulator, 0.9.5 AI
+
 ## 0.9.2 — PCB layers, pours, full screen
 
 - L.stack = {count: 1|2|4|6, planes: {In1: 'GND', …}}; layer ids F, In1–In4, B

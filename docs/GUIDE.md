@@ -38,6 +38,25 @@ Settings → Appearance → Icon size switches between large labelled icons and 
 
 Drag parts from the palette, drag from pin to pin to wire, and press play to simulate. The simulator solves the real circuit: LED current, resistor heat, voltage drop, battery life. New in 0.9: hall sensor, tilt switch, solar cell, MQ-2 gas sensor, TP4056 charger, vibration motor and joystick.
 
+## Real parts (JLCPCB / LCSC)
+
+Open **Parts** and stay on the **JLCPCB / LCSC** tab. Type a part number (NE555), a value (10k 0603, 4k7) or an LCSC number (C25804). Every part JLCPCB can assemble shows its price, stock and whether it is a **basic** part (no extra assembly fee). Click one to see its specs, price breaks, datasheet, pinout and footprint, then **Place on canvas**.
+
+- Pinouts come from the KiCad symbol for that exact part number, and footprints from KiCad's library for that package. When the match is only close (a packing suffix), or nothing matches, the card says so in red. Check those against the datasheet.
+- On the PCB, a placed part uses its real footprint. Click the part to pick a different KiCad footprint.
+- The BOM fills in the JLCPCB part number (C-number) and the manufacturer part number for these parts. Parts from the built-in palette stay blank, because ElectriCAD never guesses a part number. Right-click a canvas part and pick **Choose a real part** to swap it for a catalogue part. Its wires stay connected.
+- The simulator uses the catalogue's numbers: LED forward voltage, zener voltage, regulator output and dropout, and supply ranges.
+- Parts you open are saved on this computer, so they work offline. Parts you place are listed under My parts.
+- Symbols and footprints come from the KiCad libraries (CC-BY-SA 4.0, KiCad Libraries Team).
+
+## Reporting a problem
+
+**Help → Report a Bug…** (or the command palette) sends a report to Kinode with the app version, the Windows version and your board, plus an optional screenshot. **⚑ Report wrong image** under the Live Board reports a picture that does not match your board.
+
+## Grid
+
+Both the wiring canvas and the PCB show a grid that pans and zooms with your design. **G** shows or hides it, **Shift+G** turns snapping on or off, and the toolbar has the same switches (**#** and **⌗**) plus the grid size: 10 to 80 px on the canvas, 0.1 to 2.54 mm on the PCB (0.635 mm is 25 mil, 1.27 mm is 50 mil, 2.54 mm is the 0.1 inch pin pitch). On the PCB, parts, traces, vias, holes and pours snap to the grid you pick, and the arrow keys nudge by one grid step. On the canvas, hold **Alt** while dragging a part to place it freely. Your choices are remembered.
+
 ## Full screen
 
 ElectriCAD is laid out for a full screen and opens that way. **F11** or **⛶** in the top bar switches full screen on and off; while it is on, minimise (—) and close (✕) are in the top bar. The PCB tab uses the whole window: **◫ Panels** on its toolbar brings the file, board and serial panels back.

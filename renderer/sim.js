@@ -23,7 +23,7 @@
   // real LEDs drop different forward voltages by color — red is easy at 1.8V,
   // blue and white need ~3V (and barely light on a 3.3V rail through a big R)
   const LED_VF = { red: 1.8, orange: 2.0, yellow: 2.1, green: 2.2, blue: 3.0, white: 3.2 };
-  const effVf = (part, pair) => pair.isLed ? (LED_VF[part.color] || 2.0) : pair.vf;
+  const effVf = (part, pair) => (part.vf != null && (pair.isLed || part.lib) ? part.vf : pair.isLed ? (LED_VF[part.color] || 2.0) : pair.vf);
 
   // ---- device models --------------------------------------------------------
   // pairs: passive two-terminal stamps.
@@ -205,6 +205,11 @@
                         { a: 'vcc', b: 'vry', kind: 'res', r: 5000, potHalf: 'top', posKey: 'y' },
                         { a: 'vry', b: 'gnd', kind: 'res', r: 5000, potHalf: 'bottom', posKey: 'y' },
                         { a: 'sw', b: 'gnd', kind: 'switch', rOn: 0.5 }] },
+    // a fixed linear regulator from the parts catalogue: OUT = part.vout once
+    // IN is at least its dropout above it (catalogue value, else 1.2V)
+    linreg:   { pairs: [{ a: 'in', b: 'gnd', kind: 'res', r: 100000 }],
+                cond: [{ test: { p: 'in', n: 'gnd', min: (part) => (part.vout != null ? part.vout : 3.3) + (part.dropout != null ? part.dropout : 1.2) },
+                         then: { a: 'out', b: 'gnd', src: (part) => (part.vout != null ? part.vout : 3.3), r: 0.1 } }] },
     generic:  { pairs: [] }
   };
 
@@ -327,7 +332,7 @@
             if (state.has(part.uid + ':diode' + pi)) {
               branches.push({ n1: na, n2: nb, g: 1 / pair.rOn, emf: effVf(part, pair), tag, part, pair, isDiode: true });
             } else if (pair.vz && state.has(part.uid + ':zener' + pi)) {
-              branches.push({ n1: nb, n2: na, g: 1 / pair.rOn, emf: pair.vz, tag: tag + 'z', part, pair });
+              branches.push({ n1: nb, n2: na, g: 1 / pair.rOn, emf: (part.vz != null ? part.vz : pair.vz), tag: tag + 'z', part, pair });
             }
           }
           // kind cap: no DC stamp
@@ -391,7 +396,7 @@
             const va = vAt(part, pair.a), vb = vAt(part, pair.b);
             if (va != null && vb != null) {
               if (va - vb >= effVf(part, pair) - 0.05) next.add(part.uid + ':diode' + pi);
-              else if (pair.vz && vb - va >= pair.vz - 0.05) next.add(part.uid + ':zener' + pi);
+              else if (pair.vz && vb - va >= (part.vz != null ? part.vz : pair.vz) - 0.05) next.add(part.uid + ':zener' + pi);
             }
           }
           if (pair.kind === 'fuse' && state.has(part.uid + ':blown' + pi)) {

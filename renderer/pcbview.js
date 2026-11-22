@@ -151,6 +151,11 @@ window.ElectriCADPcbView = (function () {
     const dir = ctx.getProjectDir();
     let model = { parts: [], wires: [] };
     try { model = JSON.parse(await ctx.api.file.read(wiringFile(dir))); } catch (e) {}
+    // footprints picked here for catalogue parts (by canvas part uid)
+    for (const p of model.parts || []) {
+      const o = L.fpOver && L.fpOver[p.uid];
+      if (o && p.lib) { p.lib.fp = o.fp; p.lib.fpData = o.fpData; if (!p.lib.pads && o.pads) p.lib.pads = o.pads; }
+    }
     net = PCB.netlist(model, ctx.getBoardDef(), ctx.getBoardId(), PARTS);
     const refs = new Set(net.comps.map((c) => c.ref));
     const before = Object.keys(L.place).length;
@@ -238,6 +243,40 @@ window.ElectriCADPcbView = (function () {
     renderSide();
     draw();
   }
+  // ---- grid: what you see and what things snap to (a viewer preference) ----
+  const GRID_STEPS = [0.1, 0.25, 0.5, 0.635, 1, 1.27, 2.54];
+  let grid = { on: true, step: PCB.GRID, snap: true };
+  try { grid = { ...grid, ...JSON.parse(localStorage.getItem('ec_pcb_grid') || '{}') }; } catch (e) { /* defaults */ }
+  function setGrid(patch, say) {
+    grid = { ...grid, ...patch };
+    try { localStorage.setItem('ec_pcb_grid', JSON.stringify(grid)); } catch (e) { /* ok */ }
+    syncGridUi(); draw();
+    if (say) ctx.toast(say, 1200);
+  }
+  function syncGridUi() {
+    if (!root) return;
+    const b = root.querySelector('#pcbGrid'), sb = root.querySelector('#pcbSnap'), st = root.querySelector('#pcbGridStep');
+    if (b) b.classList.toggle('on', grid.on);
+    if (sb) sb.classList.toggle('on', grid.snap);
+    if (st) st.value = String(grid.step);
+  }
+  // snap to the grid; with snap off, to 0.01 mm so numbers stay readable
+  const sn = (v) => (grid.snap ? Math.round(Math.round(v / grid.step) * grid.step * 1e4) / 1e4 : Math.round(v * 100) / 100);
+  function drawGrid(r, S) {
+    const z = view.z;
+    // the grid you chose, thinned out (×2, ×5, ×10…) until dots are at least 8 px apart
+    let s = grid.step;
+    for (const k of [1, 2, 4, 5, 10, 20, 40, 50, 100, 200]) { s = grid.step * k; if (s * z >= 8) break; }
+    if (s * z < 8) return;
+    const major = s * 5;
+    const [x0, y0] = toWorld(0, 0), [x1, y1] = toWorld(r.width, r.height);
+    g.fillStyle = 'rgba(255,255,255,0.28)';
+    for (let x = Math.floor(x0 / s) * s; x < x1; x += s) for (let y = Math.floor(y0 / s) * s; y < y1; y += s) { const [sx, sy] = S(x, y); g.fillRect(sx - 0.75, sy - 0.75, 1.5, 1.5); }
+    g.strokeStyle = 'rgba(255,255,255,0.09)'; g.lineWidth = 1; g.beginPath();
+    for (let x = Math.floor(x0 / major) * major; x < x1; x += major) { const sx = Math.round(S(x, 0)[0]) + 0.5; g.moveTo(sx, 0); g.lineTo(sx, r.height); }
+    for (let y = Math.floor(y0 / major) * major; y < y1; y += major) { const sy = Math.round(S(0, y)[1]) + 0.5; g.moveTo(0, sy); g.lineTo(r.width, sy); }
+    g.stroke();
+  }
   function draw() {
     if (!cv || !L) return;
     const dpr = window.devicePixelRatio || 1;
@@ -247,15 +286,10 @@ window.ElectriCADPcbView = (function () {
     g.fillStyle = css('--pcb-bg', '#101418'); g.fillRect(0, 0, r.width, r.height);
     const z = view.z;
     const S = (x, y) => toScreen(x, y);
-    // grid (every 2.54 mm when zoomed in enough)
-    if (z * 2.54 > 9) {
-      g.fillStyle = 'rgba(255,255,255,0.08)';
-      const [x0, y0] = toWorld(0, 0), [x1, y1] = toWorld(r.width, r.height);
-      for (let x = Math.floor(x0 / 2.54) * 2.54; x < x1; x += 2.54) for (let y = Math.floor(y0 / 2.54) * 2.54; y < y1; y += 2.54) { const [sx, sy] = S(x, y); g.fillRect(sx - 0.5, sy - 0.5, 1, 1); }
-    }
     // board
     const [bx, by] = S(0, 0);
     g.fillStyle = '#0b3d22'; g.fillRect(bx, by, L.board.w * z, L.board.h * z);
+    if (grid.on) drawGrid(r, S);
     if (vis('edge')) { g.strokeStyle = colOf('edge'); g.lineWidth = 1.5; g.strokeRect(bx, by, L.board.w * z, L.board.h * z); }
     const seg = (x1, y1, x2, y2, w, style) => { const a = S(x1, y1), b = S(x2, y2); g.strokeStyle = style; g.lineWidth = Math.max(1, w * z); g.lineCap = 'round'; g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); };
     // copper, the far layers first and the active layer on top
@@ -497,10 +531,15 @@ window.ElectriCADPcbView = (function () {
         ${tht ? `<div class="pcb-ph">Pins (all ${fp.pads.filter((p) => p.drill).length} through-hole pads)</div>
         ${f('dia', 'Pad size (mm)', pl.pad && pl.pad.dia ? pl.pad.dia : dia0, { min: 0.5 })}${f('drill', 'Hole (mm)', pl.pad && pl.pad.drill ? pl.pad.drill : tht.drill, { min: 0.2 })}
         <div class="pcb-hint">Footprint default: ${dia0} mm pad, ${tht.drill} mm hole.${c.check ? ' Check: ' + esc(c.check) : ''}</div>
-        ${pl.pad ? '<div class="pcb-btns"><button class="mini" data-a="padreset">Footprint sizes</button></div>' : ''}` : ''}`;
+        ${pl.pad ? '<div class="pcb-btns"><button class="mini" data-a="padreset">Footprint sizes</button></div>' : ''}` : ''}
+        ${c.lcsc || /^K:/.test(c.fp) || c.type === 'lib' ? `<div class="pcb-ph">KiCad footprint</div>
+        <div class="pcb-hint">${L.fpOver && L.fpOver[c.uid] ? 'Picked here: ' + esc(L.fpOver[c.uid].fp) : /^K:/.test(c.fp) ? 'Matched from the package (' + esc(c.fp.slice(2)) + ')' : 'None matched: pick the one for this package'}</div>
+        <input class="input slim pcb-fpq" placeholder="Search footprints: SOT-23-5, QFN-32 5x5…">
+        <div class="pcb-fplist"></div>
+        ${L.fpOver && L.fpOver[c.uid] ? '<div class="pcb-btns"><button class="mini" data-a="fpreset">Use the matched footprint</button></div>' : ''}` : ''}`;
       apply = (k, v) => {
         const n = Number(v);
-        if (k === 'x' || k === 'y') return mutate(() => { pl[k] = PCB.snap(n); });
+        if (k === 'x' || k === 'y') return mutate(() => { pl[k] = sn(n); });
         if (k === 'rot') return mutate(() => { pl.rot = Number(v); });
         if (k === 'side') return mutate(() => { pl.side = v; });
         if (k === 'dia' || k === 'drill') {
@@ -519,7 +558,7 @@ window.ElectriCADPcbView = (function () {
       apply = (k, v) => {
         const n = Number(v);
         if (k === 'd' || k === 'dc') { if (!(n >= 0.5 && n <= 10)) return ctx.toast('Holes go from 0.5 to 10 mm', 2000); return mutate(() => { h.d = r2(n); }); }
-        if (k === 'x' || k === 'y') mutate(() => { h[k] = PCB.snap(n); });
+        if (k === 'x' || k === 'y') mutate(() => { h[k] = sn(n); });
       };
     } else if (sel.kind === 'via') {
       const v0 = L.vias[sel.i];
@@ -533,7 +572,7 @@ window.ElectriCADPcbView = (function () {
           if (!(nd.drill >= 0.2) || !(nd.dia > nd.drill)) return ctx.toast('The via pad has to be bigger than its drill', 2200);
           return mutate(() => { v0.drill = nd.drill; v0.dia = nd.dia; });
         }
-        mutate(() => { v0[k] = PCB.snap(n); });
+        mutate(() => { v0[k] = sn(n); });
       };
     } else if (sel.kind === 'trace') {
       const t = L.traces[sel.i];
@@ -571,7 +610,7 @@ window.ElectriCADPcbView = (function () {
         if (k === 'text') { const s2 = String(v).trim().slice(0, 40); if (!s2) return; return mutate(() => { t.text = s2; }); }
         if (k === 'h') return mutate(() => { t.h = Math.max(0.8, Math.min(5, Number(v) || 1.5)); });
         if (k === 'layer') return mutate(() => { t.layer = v; });
-        mutate(() => { t[k] = PCB.snap(Number(v)); });
+        mutate(() => { t[k] = sn(Number(v)); });
       };
     }
     if (sel) html += `<div class="pcb-btns"><button class="mini" data-a="desel">Done</button>${sel.kind !== 'comp' ? '<button class="mini danger" data-a="del">🗑 Delete</button>' : ''}</div>`;
@@ -587,7 +626,30 @@ window.ElectriCADPcbView = (function () {
       if (a === 'rules0') return mutate(() => { L.rules = {}; });
       if (a === 'pourBoard') { const B = L.board; const p = L.pours[sel.i]; return mutate(() => { p.pts = [[0, 0], [B.w, 0], [B.w, B.h], [0, B.h]]; }); }
       if (a === 'padreset') { const pl = L.place[sel.ref]; return mutate(() => { delete pl.pad; }); }
+      if (a === 'fpreset') { const c = net.comps.find((q) => q.ref === sel.ref); mutate(() => { delete L.fpOver[c.uid]; }); return syncNetlist(false); }
     }));
+    const fq = el.querySelector('.pcb-fpq');
+    if (fq) {
+      let t = null;
+      const list = el.querySelector('.pcb-fplist');
+      const c = net.comps.find((q) => q.ref === sel.ref);
+      fq.addEventListener('input', () => { clearTimeout(t); t = setTimeout(async () => {
+        const rows = fq.value.trim().length < 2 ? [] : await ctx.api.parts.fpSearch(fq.value.trim()).catch(() => []);
+        list.innerHTML = (Array.isArray(rows) ? rows : []).slice(0, 30).map((r) => `<div class="pcb-fprow" data-id="${esc(r.id)}" title="${esc(r.d)}">${esc(r.id.split(':')[1])} <span class="dim" style="padding:0">${r.pads} pads${r.smd ? ' · SMD' : ''}</span></div>`).join('') || (fq.value.trim().length >= 2 ? '<div class="pcb-hint">No KiCad footprint matches.</div>' : '');
+        list.querySelectorAll('.pcb-fprow').forEach((row) => row.addEventListener('click', async () => {
+          const r = await ctx.api.parts.fp(row.dataset.id).catch(() => null);
+          if (!r || r.error) return ctx.toast('Could not load that footprint', 2500);
+          // every pin the part uses must exist on the footprint
+          const nums = new Set(r.def.pads.map((p) => p.num));
+          const missing = c.pads.map((p) => p.pad).filter((n) => !nums.has(String(n)));
+          const usesPorts = /^H\d+$/.test(c.fp);
+          if (missing.length && !usesPorts) return ctx.toast(r.id.split(':')[1] + ' has no pad ' + [...new Set(missing)].join(', ') + ' for this part', 3500);
+          mutate(() => { L.fpOver = { ...(L.fpOver || {}), [c.uid]: { fp: r.id, fpData: r.compact } }; });
+          await syncNetlist(false);
+          ctx.toast(c.ref + ' now uses ' + r.id.split(':')[1] + '. Check its pin numbers against the datasheet.', 3500);
+        }));
+      }, 250); });
+    }
     updateButtons();
   }
   function syncWidthSelect() {
@@ -603,7 +665,7 @@ window.ElectriCADPcbView = (function () {
   }
 
   // ---- interaction --------------------------------------------------------------------
-  const snapPt = (x, y) => [PCB.snap(x), PCB.snap(y)];
+  const snapPt = (x, y) => [sn(x), sn(y)];
   function setTool(t) {
     tool = t; route = null; pourDraft = null;
     root.querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
@@ -706,7 +768,7 @@ window.ElectriCADPcbView = (function () {
     const dx = to[0] - from[0], dy = to[1] - from[1];
     const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
     const len = Math.abs(Math.cos(a)) > 0.1 && Math.abs(Math.sin(a)) > 0.1 ? Math.max(Math.abs(dx), Math.abs(dy)) * Math.SQRT2 : Math.hypot(dx, dy);
-    return [PCB.snap(from[0] + Math.cos(a) * len), PCB.snap(from[1] + Math.sin(a) * len)];
+    return [sn(from[0] + Math.cos(a) * len), sn(from[1] + Math.sin(a) * len)];
   }
   function onMove(e) {
     const r = cv.getBoundingClientRect();
@@ -714,7 +776,7 @@ window.ElectriCADPcbView = (function () {
     [mouse.wx, mouse.wy] = toWorld(sx, sy); mouse.x = sx; mouse.y = sy;
     if (drag && drag.pan) { view.x = drag.vx + sx - drag.sx; view.y = drag.vy + sy - drag.sy; draw(); return; }
     if (drag && drag.obj) {
-      drag.obj.x = PCB.snap(drag.ox + mouse.wx - drag.wx); drag.obj.y = PCB.snap(drag.oy + mouse.wy - drag.wy);
+      drag.obj.x = sn(drag.ox + mouse.wx - drag.wx); drag.obj.y = sn(drag.oy + mouse.wy - drag.wy);
       drag.moved = true; draw(); return;
     }
     if (route) {
@@ -764,18 +826,23 @@ window.ElectriCADPcbView = (function () {
     if ((k === 'delete' || k === 'backspace') && sel) { deleteSel(); e.preventDefault(); return; }
     if (sel && /^arrow/.test(k)) {
       // nudge by one grid step (Shift: 2.54 mm)
-      const st = e.shiftKey ? 2.54 : PCB.GRID;
+      const st = e.shiftKey ? 2.54 : grid.step;
       const dx = k === 'arrowleft' ? -st : k === 'arrowright' ? st : 0, dy = k === 'arrowup' ? -st : k === 'arrowdown' ? st : 0;
       const o = sel.kind === 'comp' ? L.place[sel.ref] : sel.kind === 'trace' || sel.kind === 'pour' ? null : { via: L.vias, hole: L.holes, text: L.texts }[sel.kind][sel.i];
-      if (o) mutate(() => { o.x = PCB.snap(o.x + dx); o.y = PCB.snap(o.y + dy); });
-      else if (sel.kind === 'pour') mutate(() => { const p = L.pours[sel.i]; p.pts = p.pts.map(([x, y]) => [PCB.snap(x + dx), PCB.snap(y + dy)]); });
-      else if (sel.kind === 'trace') mutate(() => { L.traces[sel.i].pts = L.traces[sel.i].pts.map(([x, y]) => [PCB.snap(x + dx), PCB.snap(y + dy)]); });
+      if (o) mutate(() => { o.x = sn(o.x + dx); o.y = sn(o.y + dy); });
+      else if (sel.kind === 'pour') mutate(() => { const p = L.pours[sel.i]; p.pts = p.pts.map(([x, y]) => [sn(x + dx), sn(y + dy)]); });
+      else if (sel.kind === 'trace') mutate(() => { L.traces[sel.i].pts = L.traces[sel.i].pts.map(([x, y]) => [sn(x + dx), sn(y + dy)]); });
       e.preventDefault(); return;
     }
     if (k === 'x' || k === 't') { setTool('route'); e.preventDefault(); return; }
     if (k === 'l') { setLayer(nextLayer(layer)); e.preventDefault(); return; }
     if (k === 'p') { setTool('pour'); e.preventDefault(); return; }
     if (k === 's') { setTool('select'); e.preventDefault(); return; }
+    if (k === 'g' && !e.ctrlKey && !e.altKey) {
+      if (e.shiftKey) setGrid({ snap: !grid.snap }, grid.snap ? 'Snap off' : 'Snap to grid on');
+      else setGrid({ on: !grid.on }, grid.on ? 'Grid hidden' : 'Grid shown');
+      e.preventDefault(); return;
+    }
     if (k === 'home' || k === '0') { fit(); e.preventDefault(); }
   }
 
@@ -844,12 +911,15 @@ window.ElectriCADPcbView = (function () {
         <button class="mini pcb-b" id="pcbLayer" title="Copper layer for new traces (L cycles, 1–6 picks). Layer count and planes are in the side panel.">Top copper</button>
         <select class="input slim" id="pcbWidth" title="Width of new traces">${WIDTHS.map((w) => `<option value="${w}" ${w === width ? 'selected' : ''}>${w} mm</option>`).join('')}</select>
         <button class="mini pcb-b" id="pcbSize" title="Board size, default hole/via/trace sizes and design rules (in the side panel)">▭ Board</button>
-        <button class="mini pcb-b" id="pcbAuto" title="Lay the parts out again in rows">⊞ Auto-place</button>
+        <button class="mini pcb-b" id="pcbAuto" title="Lay the parts out again in rows">⊞ Auto</button>
         <button class="mini pcb-b" id="pcbFit" title="Fit the board to the view (Home)">⤢ Fit</button>
-        <button class="mini pcb-b" id="pcbPanels" title="Show or hide the file, board and serial panels around the PCB">◫ Panels</button>
+        <button class="mini pcb-b" id="pcbGrid" title="Show or hide the grid (G)">#</button>
+        <select class="input slim" id="pcbGridStep" style="width:70px" title="Grid spacing in mm: what parts, traces and vias snap to">${GRID_STEPS.map((v) => `<option value="${v}" title="${v === 0.635 ? '25 mil' : v === 1.27 ? '50 mil' : v === 2.54 ? '100 mil, the 0.1 inch pin pitch' : ''}">${v}</option>`).join('')}</select>
+        <button class="mini pcb-b" id="pcbSnap" title="Snap to the grid (Shift+G)">⌗</button>
+        <button class="mini pcb-b" id="pcbPanels" title="Show or hide the file, board and serial panels around the PCB">◫</button>
         <span class="pcb-gap"></span>
-        <button class="mini pcb-b" id="pcbUndo" title="Undo (Ctrl+Z)">↶ Undo</button>
-        <button class="mini pcb-b" id="pcbRedo" title="Redo (Ctrl+Y)">↷ Redo</button>
+        <button class="mini pcb-b" id="pcbUndo" title="Undo (Ctrl+Z)">↶</button>
+        <button class="mini pcb-b" id="pcbRedo" title="Redo (Ctrl+Y)">↷</button>
         <button class="mini pcb-b" id="pcbDel" title="Delete the selected trace, via, hole or text (Del)" disabled>🗑 Delete</button>
         <button class="mini pcb-b" id="pcbClear" title="Remove every trace, via, hole and text (parts stay)">✕ Clear</button>
         <button class="mini pcb-b" id="pcbReset" title="Start the board again: fresh layout, default sizes and rules">⟲ Reset</button>
@@ -897,6 +967,10 @@ window.ElectriCADPcbView = (function () {
     root.querySelector('#pcbReset').addEventListener('click', resetBoard);
     root.querySelector('#pcbSync').addEventListener('click', () => syncNetlist(true));
     root.querySelector('#pcbFit').addEventListener('click', fit);
+    root.querySelector('#pcbGrid').addEventListener('click', () => setGrid({ on: !grid.on }));
+    root.querySelector('#pcbSnap').addEventListener('click', () => setGrid({ snap: !grid.snap }, grid.snap ? 'Snap off' : 'Snap to grid on'));
+    root.querySelector('#pcbGridStep').addEventListener('change', (e) => setGrid({ step: Number(e.target.value) || PCB.GRID }));
+    syncGridUi();
     root.querySelector('#pcbPanels').addEventListener('click', () => {
       const full = document.body.classList.toggle('pcb-full');
       try { localStorage.setItem('ec_pcb_panels', full ? '0' : '1'); } catch (e) {}
@@ -925,6 +999,7 @@ window.ElectriCADPcbView = (function () {
     async onShow() { await load(); root.querySelector('#pcbMaker').value = L.maker || 'jlcpcb'; requestAnimationFrame(() => { if (!drag) fit(); }); },
     isActive, exportFab, order,
     _state: () => ({ L, net, issues, rats, layer, A }),
+    _select: (s) => { sel = s; renderProps(); draw(); },
     _select: (x) => { sel = x; renderProps(); draw(); }
   };
 })();

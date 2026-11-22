@@ -765,7 +765,15 @@
     return null; // dev boards, kits, everything else: not a single wireable module
   }
 
-  const api = { PART_GROUPS, PARTS, PART_INFO, HOOKUPS, RECIPES, classify };
+  // the definition (ports) of a placed part: a part picked from the JLCPCB/LCSC
+  // catalogue carries its own pins; everything else uses its type's
+  const PLIB = root.ElectriCADPartLib || (typeof require === 'function' ? require('./partlib.js') : null);
+  function defOf(part) {
+    const own = PLIB && part && PLIB.portsOf(part);
+    if (own) return { type: part.type, name: part.name, ports: own, lib: true };
+    return PARTS.find((d) => d.type === (part && part.type)) || null;
+  }
+  const api = { PART_GROUPS, PARTS, PART_INFO, HOOKUPS, RECIPES, classify, defOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PinodeParts = api;
 })(typeof window !== 'undefined' ? window : globalThis);

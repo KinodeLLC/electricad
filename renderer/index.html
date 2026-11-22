@@ -30,7 +30,7 @@
       <button data-view="files" class="act on" title="Explorer: your project's files"><span class="ai">🗂</span><span class="al">Files</span></button>
       <button data-view="search" class="act" title="Search and replace in the project (Ctrl+Shift+F)"><span class="ai">🔍</span><span class="al">Search</span></button>
       <button data-view="libs" class="act" title="Libraries and board cores (Ctrl+Shift+I)"><span class="ai">📚</span><span class="al">Libraries</span></button>
-      <button data-view="catalog" class="act" title="Adafruit parts catalog (works offline)"><span class="ai">📦</span><span class="al">Parts</span></button>
+      <button data-view="catalog" class="act" title="Parts: search JLCPCB/LCSC and the Adafruit catalog"><span class="ai">📦</span><span class="al">Parts</span></button>
       <button id="actWiring" class="act" title="Wiring canvas and circuit simulation (Ctrl+Shift+W)"><span class="ai">🔌</span><span class="al">Wiring</span></button>
       <button id="actPcb" class="act" title="PCB layout: place, route and order boards (Ctrl+Shift+X)"><span class="ai">🟩</span><span class="al">PCB</span></button>
       <button data-view="git" class="act" title="Source control (git)"><span class="ai">⎇</span><span class="al">Git</span></button>
@@ -69,6 +69,21 @@
         <div id="coreList"></div>
       </div>
       <div id="view-catalog" class="view">
+        <div class="cat-tabs">
+          <button class="cat-tab on" data-src="jlc" title="Every part JLCPCB can assemble, live from the JLCPCB/LCSC catalogue">JLCPCB / LCSC</button>
+          <button class="cat-tab" data-src="ada" title="Adafruit modules and breakouts (works offline)">Adafruit</button>
+        </div>
+        <div id="jlcPane">
+          <input id="lcBox" class="input" placeholder="Part number, value or C-number: NE555, 10k 0603, C25804…">
+          <div class="cat-filters">
+            <label class="cat-stock"><input type="checkbox" id="lcStock" checked> in stock</label>
+            <label class="cat-stock" title="Basic and preferred parts have no extra JLCPCB assembly setup fee"><input type="checkbox" id="lcBasic"> basic only</label>
+          </div>
+          <div id="lcStatus" class="dim lc-status"></div>
+          <div id="lcResults"></div>
+          <div class="cat-foot lc-foot"><span id="lcStats" class="dim" style="padding:0"></span></div>
+        </div>
+        <div id="adaPane" class="hidden">
         <div class="view-head">ADAFRUIT CATALOG <span id="catCount" class="badge off"></span></div>
         <input id="catBox" class="input" placeholder="Search 5,500+ products…">
         <div class="cat-filters">
@@ -80,6 +95,7 @@
         <div class="cat-foot">
           <button id="catRefresh" class="mini" title="Re-download the catalog from adafruit.com (2 requests)">⟳ Refresh data</button>
           <span id="catBaked" class="dim" style="padding:0"></span>
+        </div>
         </div>
       </div>
       <div id="view-git" class="view">
@@ -185,6 +201,7 @@
           <select id="boardViewSelect" class="input slim"></select>
         </div>
         <div id="boardHost"></div>
+        <div class="img-report"><a href="#" id="boardReport" title="Tell us if this board picture is wrong: pins, headers, orientation or revision">⚑ Report wrong image</a></div>
         <div id="pinInspector" class="dim">Hover a pin.</div>
       </div>
       <div id="splitBoard" class="hsplit" title="Drag to resize"></div>
@@ -231,6 +248,7 @@
   <script src="board.js"></script>
   <script src="sim.js"></script>
   <script src="history.js"></script>
+  <script src="partlib.js"></script>
   <script src="parts.js"></script>
   <script src="util.js"></script>
   <script src="arduino-api.js"></script>

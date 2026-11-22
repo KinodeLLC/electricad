@@ -80,8 +80,12 @@
     MountingHole_M3: { name: 'MountingHole_3.2mm_M3', lib: 'MountingHole', label: 'M3 mounting hole',
       pads: [], npth: [{ x: 0, y: 0, d: 3.2 }], silk: [{ c: [0, 0, 3.0] }] }
   };
+  // KiCad footprints of real catalogue parts, registered by the netlist ("K:Lib:Name")
+  const KFP = {};
+  const PLIB = root.ElectriCADPartLib || (typeof require === 'function' ? require('./partlib.js') : null);
   function footprint(id) {
     if (FOOTPRINTS[id]) return FOOTPRINTS[id];
+    if (KFP[id]) return KFP[id];
     const m = /^H(\d+)$/.exec(id);
     if (m) return header(Number(m[1]));
     return null;
@@ -149,6 +153,7 @@
     if (p.type === 'led') return 'LED ' + (p.color || 'red');
     if (p.type === 'capE') return 'C ' + (p.vr || 16) + 'V';
     if (p.type === 'fuse') return (p.r || 1) + 'A';
+    if (p.lib && p.lib.mfr) return p.lib.mfr;
     return '';
   }
 
@@ -182,12 +187,16 @@
     }
     for (const p of model.parts || []) {
       if (NOT_ON_PCB.has(p.type)) continue;
-      const def = defs.find((d) => d.type === p.type);
-      const f = partFootprint(p, def);
+      const libPorts = PLIB && PLIB.portsOf(p);
+      const def = libPorts ? { type: p.type, name: p.name, ports: libPorts } : defs.find((d) => d.type === p.type);
+      const lf = PLIB && PLIB.pcbFootprint(p);
+      if (lf) KFP[lf.fp] = lf.fpDef;
+      const f = lf || partFootprint(p, def);
       const pads = Object.entries(f.pins).map(([port, pad]) => ({ key: 'part:' + p.uid + ':' + port, pad: String(pad),
         label: (def && (def.ports.find((x) => x.id === port) || {}).label) || port }));
       comps.push({ ref: nextRef(f.ref), uid: p.uid, type: p.type, name: p.name || (def && def.name) || p.type, value: valueOf(p) || p.name || '',
-        fp: f.fp, pads, check: f.check || '', note: f.note || '', catalogId: p.catalogId || null });
+        fp: f.fp, pads, check: f.check || '', note: f.note || '', catalogId: p.catalogId || null,
+        lcsc: (p.lib && p.lib.lcsc) || '', mfr: (p.lib && p.lib.mfr) || '', maker: (p.lib && p.lib.maker) || '' });
     }
     // nets: group pad keys by root; name them after power pins / board pins
     const groups = new Map();
@@ -1097,20 +1106,22 @@
     { id: 'seeed', name: 'Seeed Fusion', url: 'https://www.seeedstudio.com/fusion_pcb.html', accepts: 'Gerber zip, BOM + pick-and-place', note: '' }
   ];
 
-  // BOM / CPL for assembly. Part numbers are never guessed: the columns are
-  // left for the user, with search links for each row.
+  // BOM / CPL for assembly. Part numbers are never guessed: only parts picked
+  // from the JLCPCB/LCSC catalogue carry one; the rest are left for the user,
+  // with search links for each row.
   function bomRows(net) {
     const map = new Map();
     for (const c of net.comps) {
       if (c.type === 'board' && c.fp !== 'Nano' && c.fp !== 'Pico') continue;
       const f = footprint(c.fp);
-      const key = c.type + '|' + c.value + '|' + c.fp;
-      if (!map.has(key)) map.set(key, { comment: c.value || c.name, name: c.name, footprint: f ? f.name : c.fp, refs: [], smd: !!(f && f.smd), type: c.type });
+      const key = c.type + '|' + c.value + '|' + c.fp + '|' + (c.lcsc || '');
+      if (!map.has(key)) map.set(key, { comment: c.value || c.name, name: c.name, footprint: f ? f.name : c.fp, refs: [], smd: !!(f && f.smd), type: c.type,
+        lcsc: c.lcsc || '', mfr: c.mfr || '', maker: c.maker || '' });
       map.get(key).refs.push(c.ref);
     }
     return [...map.values()].map((r) => ({ ...r, qty: r.refs.length,
       search: {
-        lcsc: 'https://www.lcsc.com/search?q=' + encodeURIComponent(r.comment),
+        lcsc: r.lcsc ? 'https://www.lcsc.com/product-detail/' + r.lcsc + '.html' : 'https://www.lcsc.com/search?q=' + encodeURIComponent(r.comment),
         digikey: 'https://www.digikey.com/en/products/result?keywords=' + encodeURIComponent(r.comment),
         mouser: 'https://www.mouser.com/c/?q=' + encodeURIComponent(r.comment)
       } }));
@@ -1119,14 +1130,14 @@
   function bomCsv(net, format) {
     const rows = bomRows(net);
     if (format === 'jlcpcb') {
-      return ['Comment,Designator,Footprint,JLCPCB Part #'].concat(rows.map((r) => [csvq(r.comment), csvq(r.refs.join(',')), csvq(r.footprint), ''].join(','))).join('\r\n') + '\r\n';
+      return ['Comment,Designator,Footprint,JLCPCB Part #'].concat(rows.map((r) => [csvq(r.comment), csvq(r.refs.join(',')), csvq(r.footprint), r.lcsc].join(','))).join('\r\n') + '\r\n';
     }
     if (format === 'pcbway') {
       return ['Item #,Designator,Qty,Manufacturer,Mfg Part #,Description / Value,Package/Footprint,Type,Your Instructions / Notes']
-        .concat(rows.map((r, i) => [i + 1, csvq(r.refs.join(',')), r.qty, '', '', csvq(r.comment), csvq(r.footprint), r.smd ? 'SMD' : 'THT', ''].join(','))).join('\r\n') + '\r\n';
+        .concat(rows.map((r, i) => [i + 1, csvq(r.refs.join(',')), r.qty, csvq(r.maker), csvq(r.mfr), csvq(r.comment), csvq(r.footprint), r.smd ? 'SMD' : 'THT', ''].join(','))).join('\r\n') + '\r\n';
     }
-    return ['Qty,Designators,Value,Footprint,Type,LCSC search,Digi-Key search,Mouser search']
-      .concat(rows.map((r) => [r.qty, csvq(r.refs.join(' ')), csvq(r.comment), csvq(r.footprint), r.smd ? 'SMD' : 'THT', r.search.lcsc, r.search.digikey, r.search.mouser].join(','))).join('\r\n') + '\r\n';
+    return ['Qty,Designators,Value,Footprint,Type,LCSC #,Manufacturer,MPN,LCSC,Digi-Key search,Mouser search']
+      .concat(rows.map((r) => [r.qty, csvq(r.refs.join(' ')), csvq(r.comment), csvq(r.footprint), r.smd ? 'SMD' : 'THT', r.lcsc, csvq(r.maker), csvq(r.mfr), r.search.lcsc, r.search.digikey, r.search.mouser].join(','))).join('\r\n') + '\r\n';
   }
   // pick-and-place: component centre in mm from the board's bottom-left
   function cplCsv(layout, net, format) {

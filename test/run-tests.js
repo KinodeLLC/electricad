@@ -1151,6 +1151,74 @@ t('PCB layers: 1-layer boards use bottom copper; vias and top SMD are flagged', 
   assert.strictEqual(PCB.layerOf('a.gbl', files['x-B_Cu.gbl']), 'bottom-copper');
 });
 
+// ---- 0.9.3 real parts: catalogue → canvas → PCB -------------------------------
+const PLIB = require('../renderer/partlib.js');
+const PDB = require('../main/partsdb.js');
+PDB.setDir(require('path').join(require('os').tmpdir(), 'ec-test-parts-' + process.pid));
+t('parts: catalogue numbers parse into real units', () => {
+  assert.strictEqual(PLIB.siNum('4.7kΩ', 'Ω'), 4700);
+  assert.strictEqual(PLIB.siNum('100nF', 'F'), 1e-7);
+  assert.strictEqual(PLIB.siNum('100mW', 'W'), 0.1);
+  const s = PLIB.parseSpecs([{ name: 'Voltage - Supply', value: '4.5V~16V' }, { name: 'Operating Temperature', value: '-40℃~+85℃' }, { name: 'Voltage - Forward(Vf)', value: '2.1V' }], '');
+  assert.deepStrictEqual(s.supply, { min: 4.5, max: 16 });
+  assert.deepStrictEqual(s.temp, { min: -40, max: 85 });
+  assert.strictEqual(s.vf, 2.1);
+});
+t('parts: KiCad pinouts come from the symbol, never guessed', () => {
+  const K = PDB.kicad();
+  const ne = PLIB.matchSymbol('NE555DR', 'SOIC-8', K.symbols);
+  assert.strictEqual(ne.sym.n, 'NE555D'); assert.strictEqual(ne.how, 'prefix');
+  assert.strictEqual(PLIB.matchSymbol('STM32F103C8T6', 'LQFP-48(7x7)', K.symbols).sym.n, 'STM32F103C8Tx');
+  assert.strictEqual(PLIB.matchSymbol('LM7805', 'TO-220', K.symbols).sym.n, 'LM7805_TO220');
+  // a symbol whose own footprint is another package is not used
+  assert.strictEqual(PLIB.matchSymbol('ATMEGA328P-AU', 'DIP-28', K.symbols), null);
+  assert.strictEqual(PLIB.matchSymbol('XYZ-NOT-A-PART-123', 'SOIC-8', K.symbols), null);
+});
+t('parts: footprints by package, KiCad names', () => {
+  const ids = PDB.kicad().ids;
+  assert.strictEqual(PLIB.footprintFor('0603', 'resistor', ids).id, 'Resistor_SMD:R_0603_1608Metric');
+  assert.strictEqual(PLIB.footprintFor('0805', 'led', ids).id, 'LED_SMD:LED_0805_2012Metric');
+  assert.strictEqual(PLIB.footprintFor('SOP-16', 'ic', ids).id, 'Package_SO:SOIC-16_3.9x9.9mm_P1.27mm');
+  assert.strictEqual(PLIB.footprintFor('LQFP-48(7x7)', 'ic', ids).id, 'Package_QFP:LQFP-48_7x7mm_P0.5mm');
+  assert.strictEqual(PLIB.footprintFor('SMD,3.2x1.3mm', 'led', ids), null);   // unknown: the user picks
+});
+t('parts: an LDO from the catalogue is simulated and lands on its real pads', () => {
+  const b = PDB.build({ lcsc: 'C6186', mfr: 'AMS1117-3.3', pkg: 'SOT-223', category: 'Power Management / Linear Voltage Regulators (LDO)',
+    params: [{ name: 'Output Voltage', value: '3.3V' }, { name: 'Maximum Input Voltage', value: '15V' }, { name: 'Dropout Voltage', value: '1.3V@(1A)' }] });
+  const p = b.part;
+  assert.strictEqual(p.type, 'linreg'); assert.strictEqual(p.vout, 3.3); assert.strictEqual(p.dropout, 1.3);
+  assert.deepStrictEqual(p.lib.pads, { in: '3', gnd: '1', out: '2' });   // AMS1117: 1 GND, 2 VO, 3 VI
+  assert.strictEqual(p.lib.fp, 'Package_TO_SOT_SMD:SOT-223-3_TabPin2');
+  // sim: 5V in → 3.3V out
+  const model = { parts: [{ uid: 1, type: 'psu', volts: 5 }, { uid: 2, ...p }, { uid: 3, type: 'resistor', r: 330 }],
+    wires: [{ from: 'part:1:pos', to: 'part:2:in' }, { from: 'part:1:neg', to: 'part:2:gnd' }, { from: 'part:2:out', to: 'part:3:a' }, { from: 'part:3:b', to: 'part:1:neg' }] };
+  const r = sim.solve(circ(model.parts, model.wires));
+  const vout = r.netVolts[r.netOf.get('part:2:out')] - r.netVolts[r.netOf.get('part:2:gnd')];
+  assert(Math.abs(vout - 3.3) < 0.05, 'vout ' + vout);
+  // PCB + BOM carry the real footprint and the LCSC number
+  const net = PCB.netlist(model, null, null, kb.PARTS);
+  const u = net.comps.find((c) => c.uid === 2);
+  assert.strictEqual(u.fp, 'K:Package_TO_SOT_SMD:SOT-223-3_TabPin2');
+  assert.strictEqual(u.ref, 'U1');
+  assert.deepStrictEqual(u.pads.map((x) => x.pad).sort(), ['1', '2', '3']);
+  assert(PCB.footprint(u.fp).smd);
+  assert(/"AMS1117-3.3","U1","SOT-223-3_TabPin2",C6186/.test(PCB.bomCsv(net, 'jlcpcb')));
+  const plain = net.comps.find((c) => c.uid === 3);
+  assert(new RegExp('"' + plain.value + '","R1",[^\\r]*,\\r').test(PCB.bomCsv(net, 'jlcpcb')), 'built-in parts have no guessed C-number');
+});
+t('parts: two-terminal polarity follows KiCad (pad 1 = cathode / +)', () => {
+  const led = PDB.build({ lcsc: 'C1', mfr: 'X', pkg: '0805', category: 'Optoelectronics / LED Indication - Discrete', desc: 'Red 0805 LED', params: [{ name: 'Voltage - Forward(Vf)', value: '2.1V' }] }).part;
+  assert.strictEqual(led.type, 'led'); assert.deepStrictEqual(led.lib.pads, { cathode: '1', anode: '2' }); assert.strictEqual(led.vf, 2.1);
+  const cap = PDB.build({ lcsc: 'C2', mfr: 'Y', pkg: '1206', category: 'Capacitors / Tantalum Capacitors', params: [{ name: 'Voltage Rating', value: '16V' }] }).part;
+  assert.strictEqual(cap.type, 'capE'); assert.deepStrictEqual(cap.lib.pads, { pos: '1', neg: '2' }); assert.strictEqual(cap.vr, 16);
+});
+t('parts: resistor values search the full catalogue table in ohms', () => {
+  assert(/resistance=10000&package=0603$/.test(PDB.smartQuery('10k 0603')));
+  assert(/resistance=4700$/.test(PDB.smartQuery('4k7')));
+  assert.strictEqual(PDB.smartQuery('NE555'), null);
+  assert.strictEqual(PDB.smartQuery('100nF 0402'), null);
+});
+
 Promise.all(pending).then(() => {
   console.log(failures ? `\n${failures} FAILED` : '\nall tests passed');
   process.exit(failures ? 1 : 0);

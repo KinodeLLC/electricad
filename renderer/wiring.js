@@ -48,7 +48,7 @@ window.PinodeWiring = (function () {
       return pin.power === 'gnd' ? 'neg' : pin.power ? 'pos' : 'sig';
     }
     const part = model.parts.find((p) => p.uid === Number(uid));
-    const def = PARTS.find((d) => d.type === (part && part.type));
+    const def = P.defOf(part);
     const port = def && def.ports.find((p) => p.id === portId);
     return (port && port.type) || 'sig';
   }
@@ -138,9 +138,35 @@ window.PinodeWiring = (function () {
     const v = model.view;
     nodesEl.style.transformOrigin = '0 0';
     nodesEl.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`;
+    paintGrid();
     if (zoomLabel) zoomLabel.textContent = Math.round(v.z * 100) + '%';
     scheduleWires();
   }
+  // ---- grid: drawn in world units so it pans and zooms with the parts ------
+  const GRID_KEY = 'ec_wgrid';
+  let grid = { on: true, step: 20, snap: true };
+  try { grid = { ...grid, ...JSON.parse(localStorage.getItem(GRID_KEY) || '{}') }; } catch (e) { /* defaults */ }
+  const saveGrid = () => { try { localStorage.setItem(GRID_KEY, JSON.stringify(grid)); } catch (e) { /* ok */ } };
+  function paintGrid() {
+    if (!canvasEl || !model) return;
+    const v = model.view;
+    canvasEl.classList.toggle('grid-off', !grid.on);
+    const minor = grid.step * v.z, major = minor * 5;
+    canvasEl.style.setProperty('--gmin', minor + 'px');
+    canvasEl.style.setProperty('--gmaj', major + 'px');
+    canvasEl.style.backgroundPosition = `${v.x}px ${v.y}px`;
+    canvasEl.classList.toggle('grid-fine', minor < 7);
+    const b = root && root.querySelector('#wiringGrid'), sb = root && root.querySelector('#wiringSnap'), st = root && root.querySelector('#wiringGridStep');
+    if (b) b.classList.toggle('on', grid.on);
+    if (sb) sb.classList.toggle('on', grid.snap);
+    if (st) st.value = String(grid.step);
+  }
+  function setGrid(patch, say) {
+    grid = { ...grid, ...patch };
+    saveGrid(); paintGrid();
+    if (say) ctx.toast(say, 1200);
+  }
+  const snapW = (n) => (grid.snap ? Math.round(n / grid.step) * grid.step : Math.round(n));
   function screenToWorld(cx, cy) {
     const v = model.view;
     return { x: (cx - v.x) / v.z, y: (cy - v.y) / v.z };
@@ -330,6 +356,57 @@ window.PinodeWiring = (function () {
     return { ok: true, iface: cls.iface };
   }
 
+  // swap a generic canvas part for a real catalogue one, keeping its wires
+  const SWAP_QUERY = {
+    resistor: (p) => U.ohms(p.r || 220).replace('Ω', '') + ' resistor', led: (p) => (p.color || 'red') + ' LED', capC: () => '100nF capacitor', capE: (p) => (p.vr || 16) + 'V electrolytic capacitor',
+    diode: () => '1N4001', schottky: () => '1N5819', zener: () => 'zener 5.1V', npn: () => '2N2222', pnp: () => '2N2907', nmos: () => 'AO3400', pmos: () => 'AO3401',
+    reg7805: () => 'L7805', reg33: () => 'AMS1117-3.3', fuse: (p) => 'fuse ' + (p.r || 1) + 'A', inductor: () => 'inductor', lm317: () => 'LM317'
+  };
+  let swapTarget = 0;
+  function chooseRealPart(part) {
+    swapTarget = part.uid;
+    const q = part.lib ? (part.lib.mfr || part.name) : SWAP_QUERY[part.type](part);
+    if (window.electricadSearchParts) window.electricadSearchParts(q);
+    ctx.toast('Pick the part for ' + part.name + ': its card has a "Use for" button', 3500);
+  }
+  function swapInfo() { const p = swapTarget && model && model.parts.find((x) => x.uid === swapTarget); return p ? { uid: p.uid, name: p.name || ((P.defOf(p) || {}).name) || p.type, type: p.type } : null; }
+  function swapLibPart(uid, spec) {
+    const old = model.parts.find((p) => p.uid === uid);
+    if (!old) return false;
+    const fresh = JSON.parse(JSON.stringify(spec));
+    const ports = new Set(((P.defOf(fresh) || {}).ports || []).map((p) => p.id));
+    let dropped = 0;
+    mutate(() => {
+      Object.keys(old).forEach((k) => { if (!['uid', 'x', 'y'].includes(k)) delete old[k]; });
+      Object.assign(old, fresh, { uid: old.uid });
+      model.wires = model.wires.filter((w) => {
+        const keep = [w.from, w.to].every((k) => !k.startsWith('part:' + uid + ':') || ports.has(k.split(':')[2]));
+        if (!keep) dropped++;
+        return keep;
+      });
+    });
+    swapTarget = 0;
+    ctx.toast(old.name + (old.lib && old.lib.lcsc ? ' (' + old.lib.lcsc + ')' : '') + ' swapped in' + (dropped ? '; ' + dropped + ' wire(s) had no matching pin and were removed' : ', wires kept'), dropped ? 5000 : 2500);
+    return true;
+  }
+
+  // A real part from the JLCPCB/LCSC catalogue (built by partlib.toCanvasPart)
+  function placeLibPart(spec) {
+    const c = viewportCenterWorld();
+    const part = JSON.parse(JSON.stringify(spec));
+    mutate(() => {
+      // the first free spot near the middle of the view (rows of 220 × 170)
+      const busy = (x, y) => model.parts.some((p) => Math.abs((p.x || 0) - x) < 200 && Math.abs((p.y || 0) - y) < 150);
+      let at = { x: c.x - 80, y: c.y - 60 };
+      for (let i = 0; i < 60 && busy(at.x, at.y); i++) at = { x: c.x - 80 + ((i % 4) - 1) * 220, y: c.y - 60 + Math.floor(i / 4) * 170 };
+      model.parts.push({ ...part, uid: uidSeq++, x: snapW(at.x), y: snapW(at.y) });
+    });
+    const notes = (part.lib && part.lib.notes) || [];
+    const warn = notes.find((n) => /confirm|no KiCad|check the datasheet|pick one/i.test(n));
+    ctx.toast(part.name + (part.lib && part.lib.lcsc ? ' (' + part.lib.lcsc + ')' : '') + ' placed' + (warn ? '. Check: ' + warn : ''), warn ? 6000 : 2200);
+    return true;
+  }
+
   // ---- part info card: how it works, its voltage, how it fails --------------
   function showPartInfo(type, displayName, iface) {
     const info = PART_INFO[type] || {};
@@ -386,6 +463,9 @@ window.PinodeWiring = (function () {
         <span id="wiringZoom" class="dim" style="padding:0;min-width:38px;text-align:center">100%</span>
         <button class="mini" id="wiringZoomIn" title="Zoom in">＋</button>
         <button class="mini" id="wiringFit" title="Fit everything in view">⛶</button>
+        <button class="mini" id="wiringGrid" title="Show or hide the grid (G)"># Grid</button>
+        <select class="input slim" id="wiringGridStep" title="Grid spacing">${[10, 20, 40, 80].map((n) => `<option value="${n}">${n} px</option>`).join('')}</select>
+        <button class="mini" id="wiringSnap" title="Snap parts to the grid when you move them (Shift+G). Hold Alt while dragging to place freely.">⌗ Snap</button>
         <button class="mini" id="wiringExport" title="Write pins.h with a #define for every wired signal">Export pins.h</button>
         <button class="mini" id="wiringBom" title="Bill of materials as CSV, with Adafruit prices where known">BOM</button>
         <button class="mini" id="wiringImage" title="Save the canvas as a PNG image">Image</button>
@@ -429,6 +509,9 @@ window.PinodeWiring = (function () {
     root.querySelector('#wiringZoomOut').addEventListener('click', () =>
       zoomAt(canvasEl.clientWidth / 2, canvasEl.clientHeight / 2, 1 / 1.2));
     root.querySelector('#wiringFit').addEventListener('click', fitView);
+    root.querySelector('#wiringGrid').addEventListener('click', () => setGrid({ on: !grid.on }));
+    root.querySelector('#wiringSnap').addEventListener('click', () => setGrid({ snap: !grid.snap }, grid.snap ? 'Snap off' : 'Snap to grid on'));
+    root.querySelector('#wiringGridStep').addEventListener('change', (e) => setGrid({ step: Number(e.target.value) || 20 }));
 
     // wheel zoom, anchored on the cursor
     canvasEl.addEventListener('wheel', (e) => {
@@ -481,6 +564,13 @@ window.PinodeWiring = (function () {
     const list = root.querySelector('#wiringPartsList');
     list.innerHTML = '';
     const q = (filter || '').toLowerCase();
+    // every real part: hand the query to the JLCPCB/LCSC search in the Parts view
+    const real = document.createElement('div');
+    real.className = 'wpart wreal';
+    real.innerHTML = q ? `🔎 <span>Search JLCPCB / LCSC for “${esc(filter.trim())}”</span>` : '🔎 <span>Real parts: search JLCPCB / LCSC</span>';
+    real.title = 'Any part JLCPCB can assemble, with its real pinout, footprint, specs and LCSC number';
+    real.addEventListener('click', () => window.electricadSearchParts && window.electricadSearchParts(filter ? filter.trim() : ''));
+    list.appendChild(real);
     if (!q) {
       const rh = document.createElement('div');
       rh.className = 'view-head';
@@ -529,6 +619,11 @@ window.PinodeWiring = (function () {
     if (mod && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undoRedo(false); }
     else if (mod && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); undoRedo(true); }
     else if (mod && e.key.toLowerCase() === 'd' && selPart) { e.preventDefault(); duplicatePart(selPart); }
+    else if (!mod && !e.altKey && e.key.toLowerCase() === 'g') {
+      e.preventDefault();
+      if (e.shiftKey) setGrid({ snap: !grid.snap }, grid.snap ? 'Snap off' : 'Snap to grid on');
+      else setGrid({ on: !grid.on }, grid.on ? 'Grid hidden' : 'Grid shown');
+    }
     else if ((e.key === 'Delete' || e.key === 'Backspace') && selWire < 0 && selPart) { e.preventDefault(); removePart(selPart); }
     else if (e.key === 'Delete' && selWire >= 0) {
       const i = selWire;
@@ -649,7 +744,7 @@ window.PinodeWiring = (function () {
 
     // part nodes
     for (const part of model.parts) {
-      const def2 = partDef(part.type);
+      const def2 = P.defOf(part) || { ports: [] };
       const n = document.createElement('div');
       n.className = 'wnode';
       n.dataset.uid = part.uid;
@@ -673,12 +768,14 @@ window.PinodeWiring = (function () {
                   part.type === 'solar' ? ` <span class="dim">${part.light ?? 100}% sun</span>` :
                   part.type === 'mq2' ? ` <span class="dim">gas ${part.gas ?? 0}%</span>` :
                   part.type === 'joystick' ? ` <span class="dim">X${Math.round((part.x ?? 0.5) * 100)} Y${Math.round((part.y ?? 0.5) * 100)}${part.closed ? ' ●' : ''}</span>` :
+                  part.type === 'linreg' ? ` <span class="dim">→${part.vout}V</span>` :
                   part.type === 'led' && part.color ? ` <span class="dim">${esc(part.color)}</span>` : '';
+      const libTag = part.lib ? ` <span class="wlib" title="${esc((part.lib.lcsc ? 'LCSC ' + part.lib.lcsc + ' · ' : '') + (part.lib.maker || '') + ' ' + (part.lib.mfr || '') + ' · ' + (part.lib.pkg || ''))}">${esc(part.lib.pkg || 'lib')}</span>` : '';
       const pst = simOn && simResult ? simResult.partState[part.uid] : null;
       const meter = pst && pst.reading ? ` <span class="wmeter">${U.si(pst.reading.value, pst.reading.unit)}</span>` :
                     (part.type === 'voltmeter' || part.type === 'ammeter') ? ' <span class="wmeter off">—</span>' : '';
       if (part.uid === selPart) n.classList.add('selected');
-      n.innerHTML = `<div class="whead"><span class="wled"></span><span class="wname">${esc(part.name)}</span>${sub}${meter}` +
+      n.innerHTML = `<div class="whead"><span class="wled"></span><span class="wname">${esc(part.name)}</span>${sub}${libTag}${meter}` +
                     `<span class="winfobtn wnodei" title="How it works">ⓘ</span><span class="wx" title="Remove">✕</span></div>`;
       n.querySelector('.wx').addEventListener('click', () => removePart(part.uid));
       n.querySelector('.whead').addEventListener('mousedown', () => {
@@ -696,13 +793,16 @@ window.PinodeWiring = (function () {
           ...(editors[part.type] ? [{ label: { button: 'Press / release', reed: 'Magnet near / away', slide: 'Slide', pir: 'Motion / still', irrecv: 'Remote button / idle', hall: 'Magnet near / away', tilt: 'Tip / stand up' }[part.type] || 'Edit values…', run: editors[part.type] }] : []),
           { label: 'Rename…', run: () => renamePart(part) },
           { label: 'Duplicate', keys: 'Ctrl+D', run: () => duplicatePart(part.uid) },
-          { label: 'How it works', run: () => showPartInfo(part.type, part.name !== (def2 && def2.name) ? part.name : null) },
+          ...(SWAP_QUERY[part.type] || part.lib ? [{ label: part.lib ? 'Choose a different real part…' : 'Choose a real part (JLCPCB / LCSC)…', run: () => chooseRealPart(part) }] : []),
+          { label: part.lib ? 'Datasheet, specs and pinout' : 'How it works', run: () => (part.lib && window.electricadPartDetails ? window.electricadPartDetails(part) : showPartInfo(part.type, part.name !== (def2 && def2.name) ? part.name : null)) },
           '-',
           { label: 'Delete', keys: 'Del', danger: true, run: () => removePart(part.uid) }
         ]);
       });
+      if (def2.ports.length > 10) n.classList.add('wnode-wide');
       n.querySelector('.wnodei').addEventListener('click', (e) => {
         e.stopPropagation();
+        if (part.lib && window.electricadPartDetails) { window.electricadPartDetails(part); return; }
         showPartInfo(part.type, part.name !== (def2 && def2.name) ? part.name : null);
       });
       // interactive parts (window.electricadDialog — Electron has no prompt())
@@ -849,8 +949,8 @@ window.PinodeWiring = (function () {
       let moved = false;
       const move = (ev) => {
         moved = true;
-        el.style.left = Math.round(startL + (ev.clientX - sx) / z) + 'px';
-        el.style.top = Math.round(startT + (ev.clientY - sy) / z) + 'px';
+        el.style.left = (ev.altKey ? Math.round(startL + (ev.clientX - sx) / z) : snapW(startL + (ev.clientX - sx) / z)) + 'px';
+        el.style.top = (ev.altKey ? Math.round(startT + (ev.clientY - sy) / z) : snapW(startT + (ev.clientY - sy) / z)) + 'px';
         scheduleWires();
       };
       const up = () => {
@@ -999,6 +1099,9 @@ window.PinodeWiring = (function () {
     },
     isActive() { return !!(root && root.offsetParent); },
     placeCatalogItem,
+    placeLibPart,
+    swapLibPart,
+    swapInfo,
     showPartInfo
   };
 })();

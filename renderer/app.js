@@ -2367,6 +2367,7 @@
   });
 
   $('boardViewSelect').addEventListener('change', (e) => setBoardView(e.target.value));
+  $('boardReport').addEventListener('click', (e) => { e.preventDefault(); reportBug(boardImageReport()); });
 
   // ---- AI copilot ----------------------------------------------------------
   function aiContext() {
@@ -2533,7 +2534,7 @@
       v.classList.toggle('on', v.id === 'view-' + b.dataset.view));
     setWiringMode(false);
     if (b.dataset.view === 'libs') { refreshCores(); refreshInstalledLibs(); }
-    if (b.dataset.view === 'catalog') initCatalog();
+    if (b.dataset.view === 'catalog') { if ($('adaPane').classList.contains('hidden')) initJlc(); else initCatalog(); }
     if (b.dataset.view === 'settings') renderSettings();
     if (b.dataset.view === 'git') renderGit();
   }));
@@ -2755,6 +2756,272 @@
   // 5,500+ products, fully offline. Search, filter, and "Wire it": the item
   // is classified by interface and lands on the canvas with its canonical
   // hookup already wired to this board, ratings attached.
+
+  // ---- bug and wrong-image reports → usekinode.app (sent by main/bugreport.js)
+  const REPORT_KINDS = [['bug', 'Something is broken'], ['wrong_image', 'A picture is wrong (board, part, pins)'], ['crash', 'The app crashed or froze'], ['feature', 'An idea or request'], ['other', 'Something else']];
+  function boardImageReport(extra) {
+    const def = PINODE_BOARDS[S.boardDefId] || {};
+    return { kind: 'wrong_image', board: S.boardDefId || S.fqbn || '', boardRevision: (extra && extra.revision) || def.revision || '', view: 'live board',
+      imageId: (extra && extra.imageId) || ('drawn:' + (S.boardDefId || 'unknown')), title: 'Wrong image: ' + (def.name || S.boardDefId || 'board'), ...(extra || {}) };
+  }
+  window.electricadReportBug = (pre) => reportBug(pre || {});
+  window.electricadReportImage = (extra) => reportBug(boardImageReport(extra));
+  function reportBug(pre) {
+    const ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal report-modal';
+    let email = '';
+    try { email = localStorage.getItem('ec_report_email') || ''; } catch (e) { /* ok */ }
+    const ctxRows = [['Board', pre.board], ['Revision', pre.boardRevision], ['View', pre.view], ['Image', pre.imageId]].filter(([, v]) => v);
+    box.innerHTML = `
+      <div class="modal-title">Report ${pre.kind === 'wrong_image' ? 'a wrong image' : 'a problem'}</div>
+      <div class="rp-f"><label>What kind</label><select class="input" data-k="kind">${REPORT_KINDS.map(([v, l]) => `<option value="${v}" ${v === (pre.kind || 'bug') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+      <div class="rp-f"><label>Title</label><input class="input" data-k="title" maxlength="140" value="${esc(pre.title || '')}" placeholder="One line: what is wrong"></div>
+      <div class="rp-f"><label>What happened</label><textarea class="input" data-k="description" maxlength="5000" rows="5" placeholder="${pre.kind === 'wrong_image' ? 'What is wrong in the picture: a pin label, header position, orientation, the wrong revision… (optional)' : 'What you did and what went wrong'}">${esc(pre.description || '')}</textarea></div>
+      <div class="rp-f rp-bug"><label>Steps to repeat it</label><textarea class="input" data-k="steps" maxlength="4000" rows="3" placeholder="1. … 2. … (optional)"></textarea></div>
+      <div class="rp-f rp-bug"><label>What you expected</label><input class="input" data-k="expected" maxlength="2000" placeholder="(optional)"></div>
+      ${ctxRows.length ? `<div class="rp-ctx">${ctxRows.map(([k, v]) => `<div class="pd-kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>` : ''}
+      <div class="rp-f"><label>Your email</label><input class="input" data-k="email" maxlength="254" value="${esc(email)}" placeholder="only if you want a reply (optional)"></div>
+      <label class="rp-check"><input type="checkbox" data-k="shot" ${pre.kind === 'wrong_image' || !pre.kind || pre.kind === 'bug' ? 'checked' : ''}> Attach a screenshot of the app window</label>
+      <div class="pd-foot dim">Sent to Kinode (usekinode.app) with the app version, Windows version and your board. Nothing else from your computer is included.</div>
+      <div class="rp-err whint danger hidden"></div>
+      <div class="modal-btns"><button class="action" data-a="cancel">Cancel</button><button class="action primary" data-a="send">Send report</button></div>`;
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+    const q = (k) => box.querySelector(`[data-k="${k}"]`);
+    const syncKind = () => box.querySelectorAll('.rp-bug').forEach((e) => e.classList.toggle('hidden', q('kind').value === 'wrong_image' || q('kind').value === 'feature'));
+    q('kind').addEventListener('change', syncKind); syncKind();
+    const close = () => ov.remove();
+    ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(); });
+    box.querySelector('[data-a="cancel"]').addEventListener('click', close);
+    const errEl = box.querySelector('.rp-err');
+    box.querySelector('[data-a="send"]').addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget;
+      const rep = { ...pre, kind: q('kind').value, title: q('title').value.trim(), description: q('description').value.trim(), steps: q('steps').value.trim(),
+        expected: q('expected').value.trim(), email: q('email').value.trim(),
+        context: { fqbn: S.fqbn || '', boardDefId: S.boardDefId || '', project: S.project ? S.project.manifest && S.project.manifest.type : '', view: pre.view || '' } };
+      if (rep.kind === 'wrong_image' && !rep.title) rep.title = 'Wrong image: ' + (rep.board || 'board');
+      try { localStorage.setItem('ec_report_email', rep.email); } catch (e) { /* ok */ }
+      const shot = q('shot').checked;
+      btn.disabled = true; btn.textContent = 'Sending…';
+      // the screenshot shows the app, not this form
+      if (shot) ov.style.visibility = 'hidden';
+      await new Promise((r) => setTimeout(r, shot ? 120 : 0));
+      const res = await api.bug.send(rep, { screenshot: shot }).catch((e) => ({ ok: false, error: e.message, offline: true }));
+      ov.style.visibility = '';
+      btn.disabled = false; btn.textContent = 'Send report';
+      if (res && res.ok) {
+        close();
+        toast((res.duplicate ? 'Already reported as ' : 'Thanks! Report sent as ') + (res.ref || 'received') + '.', 4500);
+        return;
+      }
+      errEl.classList.remove('hidden');
+      errEl.innerHTML = esc((res && res.error) || 'The report could not be sent.') +
+        (res && res.offline ? ' <a href="#" class="rp-web">Use the form on usekinode.app instead</a>' : '');
+      const w = errEl.querySelector('.rp-web');
+      if (w) w.addEventListener('click', (e) => { e.preventDefault(); api.openExternal(res.fallback || 'https://usekinode.app/products/electricad#report-wrong-image'); });
+    });
+    setTimeout(() => (pre.kind === 'wrong_image' ? q('description') : q('title')).focus(), 50);
+  }
+
+  // ---- JLCPCB / LCSC: every part JLCPCB can assemble, live -------------------
+  // Search runs in main (main/partsdb.js); a part opens with its specs, price
+  // breaks, datasheet, KiCad pinout and footprint, and drops onto the canvas.
+  const PL = window.ElectriCADPartLib;
+  let jlcInited = false, lcT = null, lcSeq = 0;
+  function initJlc() {
+    if (jlcInited) return;
+    jlcInited = true;
+    document.querySelectorAll('.cat-tab').forEach((b) => b.addEventListener('click', () => catTab(b.dataset.src)));
+    const rerun = () => { clearTimeout(lcT); lcT = setTimeout(lcSearch, 350); };
+    $('lcBox').addEventListener('input', rerun);
+    $('lcBox').addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(lcT); lcSearch(); } });
+    $('lcStock').addEventListener('change', lcSearch);
+    $('lcBasic').addEventListener('change', lcSearch);
+    api.parts.stats().then((st) => {
+      if (st && !st.error) $('lcStats').innerHTML = `KiCad libraries: ${st.symbols.toLocaleString()} symbols, ${st.footprints.toLocaleString()} footprints (CC-BY-SA 4.0, KiCad Libraries Team) · ${st.cached} parts saved offline`;
+    }).catch(() => {});
+    lcSearch();
+  }
+  function catTab(src) {
+    document.querySelectorAll('.cat-tab').forEach((b) => b.classList.toggle('on', b.dataset.src === src));
+    $('jlcPane').classList.toggle('hidden', src !== 'jlc');
+    $('adaPane').classList.toggle('hidden', src !== 'ada');
+    if (src === 'ada') initCatalog();
+    else initJlc();
+  }
+  // open the Parts view on the JLCPCB tab with a query (from the canvas palette)
+  function searchRealParts(q) {
+    const btn = document.querySelector('.act[data-view="catalog"]');
+    if (btn && !btn.classList.contains('active')) btn.click();
+    catTab('jlc');
+    $('lcBox').value = q || '';
+    lcSearch();
+    $('lcBox').focus();
+  }
+  window.electricadSearchParts = searchRealParts;
+  const money = (v) => (v == null ? '' : v < 0.01 ? '$' + v.toFixed(4) : v < 1 ? '$' + v.toFixed(3) : '$' + v.toFixed(2));
+  async function lcSearch() {
+    const q = $('lcBox').value.trim();
+    const seq = ++lcSeq;
+    $('lcStatus').textContent = q ? 'Searching the JLCPCB catalogue…' : '';
+    const res = await api.parts.search({ q, inStock: $('lcStock').checked, basic: $('lcBasic').checked, limit: 60 }).catch((e) => ({ error: e.message, rows: [] }));
+    if (seq !== lcSeq) return;
+    const box = $('lcResults');
+    box.innerHTML = '';
+    const rows = (res && res.rows) || [];
+    $('lcStatus').textContent = res && res.error ? res.error
+      : !q ? (rows.length ? 'My parts: the ones you have placed. Search for anything else.' : 'Type a part number, a value (10k 0603) or an LCSC C-number.')
+      : rows.length + ' part' + (rows.length === 1 ? '' : 's') + (res.source === 'offline' ? ' saved on this computer' : ' from JLCPCB');
+    for (const r of rows) box.appendChild(lcItemEl(r));
+  }
+  function lcItemEl(r) {
+    const div = document.createElement('div');
+    div.className = 'catItem lcItem';
+    const tag = r.basic ? '<span class="lc-basic" title="Basic part: no extra JLCPCB assembly setup fee">basic</span>'
+      : r.preferred ? '<span class="lc-basic pref" title="Preferred extended part: no setup fee">preferred</span>'
+      : '<span class="lc-ext" title="Extended part: JLCPCB charges a one-off setup fee per part type">extended</span>';
+    const stock = r.stock == null ? '' : r.stock > 0 ? `<span class="cstock">${r.stock.toLocaleString()} in stock</span>` : '<span class="cdisc">out of stock</span>';
+    div.innerHTML = `<b>${esc(r.mfr || r.lcsc)}</b> <span class="dim" style="padding:0">${esc(r.pkg || '')}</span>
+      <div class="lc-desc">${esc(r.desc || '')}</div>
+      <div class="cmeta"><span class="cprice">${money(r.price)}</span>${stock}${tag}<span class="dim" style="padding:0">${esc(r.lcsc)}</span>${r.cached ? '<span class="dim" style="padding:0" title="Saved on this computer: works offline">●</span>' : ''}</div>`;
+    div.title = 'Specs, pinout, footprint and datasheet';
+    div.addEventListener('click', () => openPartDetails(r.lcsc, r));
+    return div;
+  }
+  async function openPartDetails(lcsc, row) {
+    toast('Loading ' + lcsc + '…', 1200);
+    const d = await api.parts.details(lcsc, { row }).catch((e) => ({ error: e.message }));
+    if (!d || d.error) { toast('Could not load ' + lcsc + ': ' + ((d && d.error) || 'no answer'), 4500); return; }
+    showPartDetails(d.part, { info: d.info, fpDef: d.fp && d.fp.def, offline: d.offline, partial: d.partial, fetched: d.fetched });
+  }
+  // a placed catalogue part: everything travels inside it, so this works offline
+  window.electricadPartDetails = (part) => {
+    const L = part.lib || {};
+    showPartDetails(part, { info: { lcsc: L.lcsc, mfr: L.mfr, maker: L.maker, pkg: L.pkg, desc: L.desc, category: L.category, datasheet: L.datasheet, price: L.priceUsd,
+      basic: L.basic, params: Object.entries((L.specs && L.specs.raw) || {}).map(([name, value]) => ({ name, value })) },
+      fpDef: L.fpData ? PL.kicadToFp(L.fp, L.fpData) : null, placed: true });
+  };
+  function drawFootprint(cv, f, pads) {
+    const g = cv.getContext('2d');
+    const W = cv.width, H = cv.height;
+    g.fillStyle = '#0b3d22'; g.fillRect(0, 0, W, H);
+    if (!f) { g.fillStyle = '#9ab'; g.font = '13px sans-serif'; g.textAlign = 'center'; g.fillText('No footprint assigned', W / 2, H / 2); return; }
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    const grow = (x, y) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); };
+    for (const p of f.pads) { grow(p.x - p.w / 2, p.y - p.h / 2); grow(p.x + p.w / 2, p.y + p.h / 2); }
+    for (const s of f.silk || []) { if (s.l) { grow(s.l[0], s.l[1]); grow(s.l[2], s.l[3]); } if (s.c) { grow(s.c[0] - s.c[2], s.c[1] - s.c[2]); grow(s.c[0] + s.c[2], s.c[1] + s.c[2]); } }
+    if (!isFinite(x1)) return;
+    const z = Math.min((W - 40) / (x2 - x1 || 1), (H - 40) / (y2 - y1 || 1));
+    const S = (x, y) => [W / 2 + (x - (x1 + x2) / 2) * z, H / 2 + (y - (y1 + y2) / 2) * z];
+    g.strokeStyle = '#e8e8e8'; g.lineWidth = Math.max(1, 0.15 * z);
+    for (const s of f.silk || []) {
+      g.beginPath();
+      if (s.l) { const a = S(s.l[0], s.l[1]), b = S(s.l[2], s.l[3]); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
+      if (s.c) { const c = S(s.c[0], s.c[1]); g.arc(c[0], c[1], s.c[2] * z, 0, Math.PI * 2); }
+      g.stroke();
+    }
+    const named = new Map(Object.entries(pads || {}).map(([k, v]) => [String(v), k]));
+    for (const p of f.pads) {
+      const [cx, cy] = S(p.x, p.y), w = p.w * z, h = p.h * z;
+      g.fillStyle = p.num === '1' ? '#f0b040' : '#d4a72c';
+      g.beginPath();
+      if (p.shape === 'circle') g.arc(cx, cy, w / 2, 0, Math.PI * 2);
+      else if (p.shape === 'oval') { const r = Math.min(w, h) / 2; g.roundRect ? g.roundRect(cx - w / 2, cy - h / 2, w, h, r) : g.rect(cx - w / 2, cy - h / 2, w, h); }
+      else g.rect(cx - w / 2, cy - h / 2, w, h);
+      g.fill();
+      if (p.drill) { g.fillStyle = '#0b1410'; g.beginPath(); g.arc(cx, cy, p.drill * z / 2, 0, Math.PI * 2); g.fill(); }
+      if (Math.min(w, h) > 11) { g.fillStyle = '#10161a'; g.font = `600 ${Math.min(14, Math.min(w, h) * 0.6)}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(p.num, cx, cy); }
+    }
+    for (const n of f.npth || []) { const [cx, cy] = S(n.x, n.y); g.fillStyle = '#000'; g.beginPath(); g.arc(cx, cy, n.d * z / 2, 0, Math.PI * 2); g.fill(); }
+    g.fillStyle = '#9ab'; g.font = '11px sans-serif'; g.textAlign = 'left'; g.textBaseline = 'bottom';
+    g.fillText(`${(x2 - x1).toFixed(2)} × ${(y2 - y1).toFixed(2)} mm · pad 1 highlighted`, 8, H - 6);
+  }
+  function showPartDetails(part, o) {
+    const info = o.info || {}, L = part.lib || {};
+    const swap = !o.placed && window.PinodeWiring.swapInfo ? window.PinodeWiring.swapInfo() : null;
+    const ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    const box = document.createElement('div');
+    box.className = 'modal wide-modal part-modal';
+    const specs = (info.params || []).filter((p) => p.name && p.value && p.value !== '-');
+    const sim = [];
+    if (part.r != null) sim.push(['Resistance', U.ohms ? U.ohms(part.r) : part.r + ' Ω']);
+    if (part.watts != null) sim.push(['Power rating', part.watts + ' W']);
+    if (part.vr != null) sim.push(['Voltage rating', part.vr + ' V']);
+    if (part.vf != null) sim.push(['Forward voltage', part.vf + ' V']);
+    if (part.ifmax != null) sim.push(['Rated current', +(part.ifmax * 1000).toFixed(1) + ' mA']);
+    if (part.vz != null) sim.push(['Zener voltage', part.vz + ' V']);
+    if (part.vout != null) sim.push(['Output', part.vout + ' V (dropout ' + (part.dropout || 1.2) + ' V)']);
+    if (part.ratings) for (const r of part.ratings.pairs) sim.push([(r.name || 'Supply') + ' range', r.min + '–' + r.max + ' V (damage above ' + r.abs + ' V)']);
+    const pins = PL.portsOf(part) || ((window.PinodeParts.defOf(part) || {}).ports || []);
+    const padOf = L.pads || {};
+    const ladder = (info.ladder || []).filter((l) => l.usd != null);
+    const notes = L.notes || [];
+    const kind = { resistor: 'Resistor', capC: 'Ceramic capacitor', capE: 'Polarised capacitor', led: 'LED', diode: 'Diode', schottky: 'Schottky diode', zener: 'Zener diode',
+      fuse: 'Fuse', inductor: 'Inductor', npn: 'NPN transistor', pnp: 'PNP transistor', nmos: 'N-MOSFET', pmos: 'P-MOSFET', linreg: 'Linear regulator', lib: 'IC / module' }[part.type] || part.type;
+    box.innerHTML = `
+      <div class="modal-title">${esc(info.mfr || part.name)} <span class="dim" style="padding:0">${esc(info.maker || '')}</span></div>
+      <div class="pd-sub">${esc(info.desc || '')}</div>
+      <div class="pd-grid">
+        <div>
+          <div class="pd-kv"><span>LCSC #</span><b class="pd-copy" title="Click to copy">${esc(info.lcsc || '—')}</b></div>
+          <div class="pd-kv"><span>Package</span><b>${esc(info.pkg || '—')}</b></div>
+          <div class="pd-kv"><span>On the canvas as</span><b>${esc(kind)}</b></div>
+          <div class="pd-kv"><span>Category</span><b>${esc(info.category || '—')}</b></div>
+          ${info.stock != null ? `<div class="pd-kv"><span>JLCPCB stock</span><b>${Number(info.stock).toLocaleString()}</b></div>` : ''}
+          <div class="pd-kv"><span>Assembly</span><b>${info.basic ? 'Basic part (no setup fee)' : info.preferred ? 'Preferred (no setup fee)' : 'Extended (one-off setup fee)'}</b></div>
+          ${ladder.length ? `<div class="pd-kv"><span>Price</span><b>${ladder.map((l) => esc(l.qty + '+: ' + money(l.usd))).join(' · ')}</b></div>` : info.price != null ? `<div class="pd-kv"><span>Price</span><b>${money(info.price)}</b></div>` : ''}
+          ${o.offline ? '<div class="whint hint">Offline: showing what was saved on this computer.</div>' : ''}
+          ${o.partial ? '<div class="whint hint">LCSC detail page unreachable: specs are from the search result only.</div>' : ''}
+          ${sim.length ? `<div class="pd-h">What the simulator uses</div>${sim.map(([k, v]) => `<div class="pd-kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}` : ''}
+          ${notes.length ? `<div class="pd-h">Check before you build</div>${notes.map((n) => `<div class="whint ${/confirm|no KiCad|assum|check the datasheet|pick one|polarity/i.test(n) ? 'danger' : 'hint'}">${esc(n)}</div>`).join('')}` : ''}
+          <div class="pd-h">Specs (from the catalogue)</div>
+          <div class="pd-specs">${specs.length ? specs.map((p) => `<div class="pd-kv"><span>${esc(p.name)}</span><b>${esc(p.value)}</b></div>`).join('') : '<p class="dim">The catalogue lists no parameters for this part.</p>'}</div>
+        </div>
+        <div>
+          <div class="pd-h">Footprint ${L.fp ? `<span class="dim" style="padding:0">${esc(L.fp)}</span>` : ''}</div>
+          <canvas class="pd-fp" width="460" height="300"></canvas>
+          <div class="pd-h">Pinout ${L.symbol ? `<span class="dim" style="padding:0">KiCad ${esc(L.symbol)}${L.symbolMatch === 'prefix' ? ' (closest match)' : ''}</span>` : ''}</div>
+          <div class="pd-pins">${pins.length ? pins.map((p) => `<div class="pd-pin t-${esc(p.type)}"><b>${esc(padOf[p.id] || p.num || '')}</b><span>${esc(String(p.label).replace(/^\d+\s/, ''))}</span></div>`).join('') : '<p class="dim">—</p>'}</div>
+        </div>
+      </div>
+      <div class="pd-foot dim">Catalogue data from JLCPCB/LCSC${L.checked ? ', checked ' + esc(L.checked) : ''}. Symbols and footprints from the KiCad libraries (CC-BY-SA 4.0). ElectriCAD never orders parts for you.</div>
+      <div class="modal-btns">
+        ${info.datasheet ? '<button class="action" data-a="ds">📄 Datasheet</button>' : ''}
+        ${info.lcsc ? '<button class="action" data-a="lcsc">LCSC page ↗</button>' : ''}
+        ${!o.placed && swap ? `<button class="action primary" data-a="swap">⇄ Use for ${esc(swap.name)}</button><button class="action" data-a="place">🔌 Place as a new part</button>` : !o.placed ? '<button class="action primary" data-a="place">🔌 Place on canvas</button>' : '<button class="action" data-a="refresh">⟳ Latest stock and price</button>'}
+        <button class="action" data-a="close">Close</button>
+      </div>`;
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+    drawFootprint(box.querySelector('.pd-fp'), o.fpDef, padOf);
+    const close = () => ov.remove();
+    ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(); });
+    box.querySelector('.pd-copy').addEventListener('click', () => { if (info.lcsc) { navigator.clipboard.writeText(info.lcsc).catch(() => {}); toast('Copied ' + info.lcsc, 1200); } });
+    box.querySelectorAll('[data-a]').forEach((b) => b.addEventListener('click', async () => {
+      const a = b.dataset.a;
+      if (a === 'close') close();
+      if (a === 'ds') api.openExternal(info.datasheet);
+      if (a === 'lcsc') api.openExternal('https://www.lcsc.com/product-detail/' + info.lcsc + '.html');
+      if (a === 'refresh') { close(); const d = await api.parts.details(info.lcsc, { refresh: true }).catch(() => null); if (d && !d.error) showPartDetails(part, { info: d.info, fpDef: o.fpDef, placed: true, offline: d.offline }); else toast('Could not reach LCSC', 3000); }
+      if (a === 'swap') {
+        close();
+        setWiringMode(true);
+        setTimeout(() => { window.PinodeWiring.swapLibPart(swap.uid, part); if (info.lcsc) api.parts.used(info.lcsc).catch(() => {}); }, 150);
+      }
+      if (a === 'place') {
+        close();
+        setWiringMode(true);
+        setTimeout(() => {
+          window.PinodeWiring.placeLibPart(part);
+          if (info.lcsc) api.parts.used(info.lcsc).catch(() => {});
+        }, 150);
+      }
+    }));
+  }
+
   let catalogInited = false;
   let catSearchT = null;
   async function initCatalog() {
@@ -3180,6 +3447,8 @@
       { label: 'AI: new conversation', run: aiClear },
       { label: 'Settings', keys: 'Ctrl+,', run: () => document.querySelector('.act[data-view="settings"]').click() },
       { label: 'Full screen on or off', keys: 'F11', run: () => api.app.win('fullscreen') },
+      { label: 'Report a bug', run: () => reportBug({}) },
+      { label: 'Report a wrong board image', run: () => reportBug(boardImageReport()) },
       { label: 'Keyboard shortcuts', keys: 'F1', run: showShortcuts },
       ...Object.values(PINODE_BOARDS).map((b) => ({
         label: 'Board view: ' + b.name, run: () => setBoardView(b.id)
@@ -4684,6 +4953,10 @@ void loop()  { ELECTRICAD_TICK(); /* your code */ }</pre>
     docMarkdown(box.querySelector('.md-preview'), md);
   }
   const WHATS_NEW = [
+    ['🔎 Real parts (0.9.3)', 'Parts → JLCPCB / LCSC searches every part JLCPCB can assemble: price, stock, specs, datasheet, the KiCad pinout and footprint. Place it and it lands on the canvas, the PCB (real footprint) and the BOM with its LCSC number.'],
+    ['⇄ Choose a real part (0.9.3)', 'Right-click a resistor, LED, regulator or transistor on the canvas and pick a real catalogue part for it. Its wires stay connected.'],
+    ['⚑ Report a bug (0.9.3)', 'Help → Report a Bug, or ⚑ under the Live Board for a wrong picture. Reports go straight to Kinode, with an optional screenshot.'],
+    ['# Grid (0.9.2)', 'The wiring canvas and the PCB have a grid that moves and zooms with your design. G shows or hides it, Shift+G turns snapping on or off, and the toolbar sets the grid size (down to 0.1 mm on the PCB).'],
     ['🧱 PCB layers (0.9.2)', 'Choose 1, 2, 4 or 6 copper layers in the PCB side panel. Inner layers can be signal layers or solid GND and power planes. The Layers list shows, hides and recolours every layer and picks the one you route on (L or 1–6).'],
     ['▰ Copper pours', 'Draw a pour (P) or pour a whole layer in one click. Pours keep clear of other nets, join their own pads with thermal spokes, and the rule check flags cut-off islands. Gerbers, drill files and a stackup note for JLCPCB and PCBWay cover every layer.'],
     ['⛶ Full screen', 'ElectriCAD opens full screen. F11 or ⛶ in the top bar switches it, and minimise and close sit next to it. The PCB view takes the whole window; ◫ Panels brings the side panels back. The left icon bar is bigger and resizes too. Drag the strips between panels to resize them, drag one shut to hide it, double-click a strip for the default size.'],
@@ -5018,6 +5291,7 @@ void loop()  { ELECTRICAD_TICK(); /* your code */ }</pre>
     resetBoard,
     wiring: () => setWiringMode($('wiringHost').classList.contains('hidden')),
     catalog: () => document.querySelector('.act[data-view="catalog"]').click(),
+    reportBug: () => reportBug({}),
     libs: () => libSearch(),
     connectPi,
     closePorts: () => api.serial.close(),

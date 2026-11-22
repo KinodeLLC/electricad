@@ -100,6 +100,16 @@ contextBridge.exposeInMainWorld('electricad', {
     signals: invoke('serial:signals')
   },
   devices: { list: invoke('devices:list') },
+  bug: { send: invoke('bug:send') },
+  parts: {
+    search: invoke('parts:search'),
+    details: invoke('parts:details'),
+    fpSearch: invoke('parts:fpSearch'),
+    fp: invoke('parts:fp'),
+    symSearch: invoke('parts:symSearch'),
+    stats: invoke('parts:stats'),
+    used: invoke('parts:used')
+  },
   catalog: {
     stats: invoke('catalog:stats'),
     cats: invoke('catalog:cats'),

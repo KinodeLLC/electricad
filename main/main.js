@@ -13,6 +13,8 @@ const pigpio = require('./pigpio');
 const ai = require('./ai');
 const detect = require('./detect');
 const catalog = require('./catalog');
+const partsdb = require('./partsdb');
+const bugreport = require('./bugreport');
 const upy = require('./upy');
 const git = require('./git');
 const localhistory = require('./localhistory');
@@ -298,6 +300,9 @@ function buildMenu() {
       item('Keyboard Shortcuts', 'shortcuts', 'F1'),
       item('Live Telemetry Guide', 'telemetryHelp'),
       { type: 'separator' },
+      item('Report a Bug…', 'reportBug'),
+      { label: 'Report Page on usekinode.app', click: () => shell.openExternal('https://usekinode.app/products/electricad') },
+      { type: 'separator' },
       { label: 'arduino-cli Documentation', click: () => shell.openExternal('https://arduino.github.io/arduino-cli/latest/') },
       { label: 'Arduino Language Reference', click: () => shell.openExternal('https://docs.arduino.cc/language-reference/') },
       { label: 'Adafruit Learning System', click: () => shell.openExternal('https://learn.adafruit.com/') },
@@ -519,6 +524,27 @@ ipcMain.handle('catalog:cats', () => catalog.categories());
 ipcMain.handle('catalog:search', (e, opts) => catalog.search(opts || {}));
 ipcMain.handle('catalog:get', (e, id) => catalog.get(id));
 ipcMain.handle('catalog:refresh', () => catalog.refresh());
+// real parts: JLCPCB/LCSC catalogue + KiCad libraries (see main/partsdb.js)
+const safe = (fn) => async (...a) => { try { return await fn(...a); } catch (e) { return { error: e.message || String(e) }; } };
+ipcMain.handle('parts:search', safe((e, opts) => partsdb.search(opts || {})));
+ipcMain.handle('parts:details', safe((e, lcsc, opts) => partsdb.details(lcsc, opts || {})));
+ipcMain.handle('parts:fpSearch', safe((e, q) => partsdb.fpSearch(q)));
+ipcMain.handle('parts:fp', safe((e, id) => partsdb.fp(id)));
+ipcMain.handle('parts:symSearch', safe((e, q) => partsdb.symSearch(q)));
+ipcMain.handle('parts:stats', safe(() => partsdb.stats()));
+// bug / wrong-image reports: only when the user presses Send in the report form
+ipcMain.handle('bug:send', safe(async (e, report, opts) => {
+  const r = { ...(report || {}) };
+  if (opts && opts.screenshot) {
+    try {
+      const img = await e.sender.capturePage();
+      const sized = img.getSize().width > 1920 ? img.resize({ width: 1920 }) : img;
+      r.screenshot = 'data:image/jpeg;base64,' + sized.toJPEG(82).toString('base64');
+    } catch (x) { /* send without it */ }
+  }
+  return bugreport.send(r, { appVersion: app.getVersion() });
+}));
+ipcMain.handle('parts:used', safe((e, lcsc) => partsdb.markUsed(lcsc)));
 
 // raspberry pi (network gpio via pigpiod)
 ipcMain.handle('pi:connect', (e, opts) => pigpio.connect(opts));
