@@ -31,8 +31,8 @@ window.PINODE_BOARDS = (() => {
 
   // ---- to-scale geometry ----------------------------------------------------
   const U = 4;   // drawing units per millimetre
-  // mask: solder-mask colour. Arduino teal is sampled from Arduino's renders
-  // (#017381); the Adafruit Feathers listed here are made with black mask.
+  // mask: solder-mask colour. Arduino teal sits between Arduino's renders
+  // (#017381) and photos of real boards (#29505c to #3896c8); the Adafruit Feathers listed here are made with black mask.
   // headers: the board ships with its shield headers fitted.
   function mmBoard(def, g) {
     // margin for parts that overhang the edge (USB, jack), or for labels
@@ -95,7 +95,7 @@ window.PINODE_BOARDS = (() => {
 
   // ---- Arduino Uno (R3, R4 Minima, R4 WiFi) ----------------------------------
   const uno = mmBoard({
-    id: 'uno', name: 'Arduino Uno', w: 0, h: 0, mask: '#00727f', headers: true,
+    id: 'uno', name: 'Arduino Uno', w: 0, h: 0, mask: '#0b6f8a', headers: true,
     fqbnMatch: /arduino:avr:uno|arduino:renesas_uno:/,   // UNO R4 keeps the R3 numbering
     digitalCount: 23,   // 0–19 on the headers; 21/22 are the R4 Minima's TX/RX LEDs
     pins: [
@@ -135,7 +135,7 @@ window.PINODE_BOARDS = (() => {
   // Upright, USB at the top. Seen from the top, D12…TX1 run down the right
   // edge and D13…VIN down the left, D12/D13 nearest the USB socket.
   const nano = mmBoard({
-    id: 'nano', name: 'Arduino Nano', w: 0, h: 0, mask: '#00727f',
+    id: 'nano', name: 'Arduino Nano', w: 0, h: 0, mask: '#0b6f8a',
     fqbnMatch: /arduino:avr:nano/,
     digitalCount: 20,
     pins: [
@@ -184,7 +184,7 @@ window.PINODE_BOARDS = (() => {
   // PWM on 3 5 6 9 10 11 13, and the TX/RX LEDs show USB traffic. The ICSP
   // pins are the 32u4's only SPI pins: MISO 14, SCK 15, MOSI 16.
   const leonardo = mmBoard({
-    id: 'leonardo', name: 'Arduino Leonardo', w: 0, h: 0, mask: '#00727f', headers: true,
+    id: 'leonardo', name: 'Arduino Leonardo', w: 0, h: 0, mask: '#0b6f8a', headers: true,
     fqbnMatch: /arduino:avr:leonardo(?::|$)/,
     digitalCount: 31,
     pins: [
@@ -226,7 +226,7 @@ window.PINODE_BOARDS = (() => {
   // 3 5 6 9 10 only. Labels are plain numbers like its silkscreen. Pads from
   // the top-copper Gerber: same pitch and order as the Nano, rows 15.24 apart.
   const nanoevery = mmBoard({
-    id: 'nanoevery', name: 'Arduino Nano Every', w: 0, h: 0, mask: '#00727f',
+    id: 'nanoevery', name: 'Arduino Nano Every', w: 0, h: 0, mask: '#0b6f8a',
     fqbnMatch: /arduino:megaavr:nona4809/,
     digitalCount: 22,
     pins: [
@@ -354,7 +354,7 @@ window.PINODE_BOARDS = (() => {
     68.58, 71.12, 73.66, 76.2, 78.74, 81.28];
   const MEGA_SPI = { 50: 'MISO', 51: 'MOSI', 52: 'SCK', 53: 'SS' };
   const mega = mmBoard({
-    id: 'mega', name: 'Arduino Mega 2560', w: 0, h: 0, mask: '#00727f', headers: true,
+    id: 'mega', name: 'Arduino Mega 2560', w: 0, h: 0, mask: '#0b6f8a', headers: true,
     fqbnMatch: /arduino:avr:mega/,
     digitalCount: 64,
     pins: [
@@ -629,7 +629,8 @@ window.PINODE_BOARDS = (() => {
     cells: Array.from({ length: 96 }, (_, i) => [+(34.412 + (i % 12) * 2.1).toFixed(3), +(26.53 - Math.floor(i / 12) * 2.1).toFixed(3)]) };
   uno.revisions = [
     { id: 'r3', name: 'UNO R3', fqbn: /arduino:avr:uno/, note: 'ATmega328P, through-hole (A000066). The SMD R3 has the same headers.',
-      images: [img('uno-r3-render', 'render', 'front', DOCS('uno/boards/uno-rev3/image.svg'))] },
+      images: [img('uno-r3-photo', 'photo', 'front', COMMONS('Arduino Uno R3 development board (1).jpg', 'Suyash Dwivedi', 'CC BY-SA 4.0')),
+        img('uno-r3-render', 'render', 'front', DOCS('uno/boards/uno-rev3/image.svg'))] },
     { id: 'r4minima', name: 'UNO R4 Minima', fqbn: /arduino:renesas_uno:minima/, note: 'RA4M1, USB-C (ABX00080). Pin 1 of the power header is BOOT.',
       pinLabels: { NC: 'BOOT' },
       decor: [
@@ -647,11 +648,53 @@ window.PINODE_BOARDS = (() => {
         { kind: 'chip', at: [7.5, 14.6, 21.25, 28.8], label: 'ESP32-S3' },
         ...R4_LEDS([26.416, 42.164], [26.416, 36.576], [26.416, 34.29], [64.897, 39.553]), R4_MATRIX],
       images: [img('uno-r4wifi-photo', 'photo', 'front', COMMONS('Arduino Uno R4 WiFi.webp', 'Arduino', 'CC BY-SA 3.0')),
-        img('uno-r4wifi-render', 'render', 'front', DOCS('uno/boards/uno-r4-wifi/image.svg'))] }
+        img('uno-r4wifi-render', 'render', 'front', DOCS('uno/boards/uno-r4-wifi/image.svg'))] },
+    // the common blue SMD clone: same shield headers, CH340G USB-serial on
+    // a 12 MHz crystal, ATmega328P in TQFP-32. Parts and LEDs are placed from
+    // the photo below (its LED silk reads ON, RX, X1 (the TX LED), L).
+    { id: 'clone-ch340', name: 'UNO R3 clone (CH340G, SMD, blue)', fqbn: /arduino:avr:uno/, clone: true, mask: '#1f4fbf',
+      note: 'Common clone: ATmega328P TQFP + CH340G (install the CH340 driver on older Windows). Headers match the R3; parts and LEDs placed from the photo, colours of the LEDs: check. Layouts differ between makers.',
+      decor: [
+        { kind: 'usb', at: [-6.3, 32.1, 9.9, 44.1], label: 'USB' }, { kind: 'jack', at: [-1.9, 3.9, 12.5, 12.9] },
+        { kind: 'button', at: [3.25, 46.3, 9.45, 52.5], label: 'RESET' },
+        { kind: 'chip', at: [35.65, 20.69, 43.7, 29.39], label: 'ATMEGA328P' },
+        { kind: 'chip', at: [10.9, 25.04, 20.6, 31.74], label: 'CH340G' },
+        { kind: 'led', at: [26.25, 21.09], tele: 13, label: 'L', color: '#ffd94a' },
+        { kind: 'led', at: [26.0, 39.29], role: 'power', label: 'ON', color: '#3fd07a' },
+        { kind: 'led', at: [26.0, 27.04], role: 'tx', label: 'TX', color: '#ffd94a' },
+        { kind: 'led', at: [26.0, 33.2], role: 'rx', label: 'RX', color: '#ffd94a' }],
+      images: [img('uno-clone-photo', 'photo', 'front', COMMONS('Arduino Uno R3 development board 04.jpg', 'Shoot stufz', 'CC BY-SA 4.0'))] }
   ];
   for (const r of uno.revisions) if (r.decor) r.decor = mmDecor(uno, r.decor);
   mega.revisions = [{ id: 'rev3', name: 'Mega 2560 Rev3', fqbn: /arduino:avr:mega/, note: 'ATmega2560 (A000067)',
-    images: [img('mega-rev3-render', 'render', 'front', DOCS('mega/boards/mega-2560/image.svg'))] }];
+    images: [img('mega-rev3-render', 'render', 'front', DOCS('mega/boards/mega-2560/image.svg'))] },
+  // HW-888: a black Mega + WiFi clone. CH340G read off the chip in the photo;
+  // the ESP8266 is named by the GPIO0/GPIO2/CH_PD/GPIO16/TOUT labels on its
+  // back header; parts and LEDs placed from the photos.
+  { id: 'hw888', name: 'Mega 2560 + WiFi clone (HW-888, black)', fqbn: /arduino:avr:mega/, clone: true, mask: '#1d1e20',
+    note: 'ATmega2560 + ESP8266 with a CH340G on micro-USB; the DIP switch routes USB to the Mega or the ESP8266. Shield headers match the Rev3. Parts and LEDs placed from the photos, LED colours: check.',
+    decor: [
+      { kind: 'usb', at: [0.75, 38.3, 6.5, 45.6], label: 'micro-USB' }, { kind: 'jack', at: [-2.5, 6.6, 11, 17.3] },
+      { kind: 'button', at: [2.4, 49.7, 9.75, 53.3], label: 'RESET' },
+      { kind: 'chip', at: [68.8, 23.8, 84.5, 39.0], label: 'ATMEGA2560' },
+      { kind: 'chip', at: [23.05, 42.0, 32.7, 45.44], label: 'CH340G' },
+      { kind: 'chip', at: [13.7, 26.3, 18.55, 31.5], label: 'ESP8266', small: true },
+      { kind: 'led', at: [15.875, 48.71], tele: 13, label: 'L', color: '#ffd94a' },
+      { kind: 'led', at: [15.75, 45.84], role: 'power', label: 'ON', color: '#3fd07a' },
+      { kind: 'led', at: [15.875, 42.96], role: 'tx', label: 'TX', color: '#ffd94a' },
+      { kind: 'led', at: [15.875, 40.15], role: 'rx', label: 'RX', color: '#ffd94a' }],
+    images: [img('mega-hw888-photo', 'photo', 'front', COMMONS('Arduino Mega 2560 (HW-888) front.jpg', 'Goga504', 'CC BY-SA 4.0')),
+      img('mega-hw888-back-photo', 'photo', 'back', COMMONS('Arduino Mega 2560 (HW-888) rear.jpg', 'Goga504', 'CC BY-SA 4.0'))] },
+  // the plain blue CH340G and USB-C clones: no openly licensed photo or design
+  // file was found, so only what every one of them shares is drawn (outline,
+  // holes, shield headers, ICSP); the parts are left out rather than guessed
+  { id: 'clone-ch340', name: 'Mega 2560 clone (CH340G, USB-B, blue)', fqbn: /arduino:avr:mega/, clone: true, mask: '#1f4fbf',
+    note: 'Pin-compatible clone with a CH340G instead of the 16U2. Headers and holes match the Rev3; the parts differ between makers and are not drawn (check your board).',
+    decor: [{ kind: 'usb', at: [-6.3, 32.1, 9.9, 44.1], label: 'USB' }, { kind: 'jack', at: [-1.9, 3.9, 12.5, 12.9] }] },
+  { id: 'clone-usbc', name: 'Mega 2560 clone (CH340, USB-C)', fqbn: /arduino:avr:mega/, clone: true, mask: '#1f4fbf',
+    note: 'Pin-compatible clone with USB-C and a CH340. Headers and holes match the Rev3; the USB-C position and the parts differ between makers and are not drawn exactly (check your board).',
+    decor: [{ kind: 'usb', at: [-1.5, 33.3, 6.7, 42.5], label: 'USB-C' }, { kind: 'jack', at: [-1.9, 3.9, 12.5, 12.9] }] }];
+  for (const r of mega.revisions) if (r.decor) r.decor = mmDecor(mega, r.decor);
   leonardo.revisions = [{ id: 'rev3', name: 'Leonardo', fqbn: /arduino:avr:leonardo/, note: 'ATmega32u4 (A000057)',
     images: [img('leonardo-photo', 'photo', 'front', COMMONS('Arduino Leonardo board.JPG', 'Kszapsza', 'CC BY-SA 4.0')),
       img('leonardo-render', 'render', 'front', DOCS('hero/boards/leonardo/image.svg'))] }];
@@ -687,7 +730,7 @@ window.PINODE_BOARDS = (() => {
     const rev = revs.find((r) => r.id === revId) || revs[0] || null;
     if (!rev) return { def, rev: null };
     const pins = rev.pinLabels ? def.pins.map((p) => (rev.pinLabels[p.label] ? { ...p, label: rev.pinLabels[p.label] } : p)) : def.pins;
-    return { def: { ...def, name: def.name, title: rev.name, pins, decor: rev.decor || def.decor }, rev };
+    return { def: { ...def, name: def.name, title: rev.name, pins, decor: rev.decor || def.decor, mask: rev.mask || def.mask }, rev };
   }
   Object.defineProperty(PINODE_REV, 'withRevision', { value: withRevision });
 

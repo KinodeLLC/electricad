@@ -61,7 +61,21 @@ window.PinodeBoard = (function () {
     if (showImage && opt.image) {
       // images are stored in board units already; a photo of the back is kept
       // as photographed, which is the mirrored frame, so undo the mirror here
-      const ig = el('g', { transform: T.back ? `matrix(-1 0 0 1 ${def.w} 0)` : 'matrix(1 0 0 1 0 0)' }, g);
+      // a photo shows the table around the board: keep only the board and the
+      // connectors that hang over its edge
+      let host = g;
+      if (def.outline && def.unitsPerMm) {
+        const cid = 'bc' + Math.random().toString(36).slice(2, 8), m = def.unitsPerMm;
+        const cp = el('clipPath', { id: cid }, el('defs', {}, g));
+        el('path', { d: 'M' + def.outline.map((p) => p.map((v) => +v.toFixed(2)).join(' ')).join('L') + 'Z' }, cp);
+        for (const d of def.decor || []) {
+          if ((d.kind === 'usb' || d.kind === 'jack') && d.w) el('rect', { x: d.x - m, y: d.y - m, width: d.w + 2 * m, height: d.h + 2 * m }, cp);
+        }
+        // header plastic stands up past the edge in a photo taken at an angle
+        for (const p of def.pins || []) if (p.at) el('rect', { x: p.x - 2.2 * m, y: p.y - 2.2 * m, width: 4.4 * m, height: 4.4 * m }, cp);
+        host = el('g', { 'clip-path': 'url(#' + cid + ')' }, g);
+      }
+      const ig = el('g', { transform: T.back ? `matrix(-1 0 0 1 ${def.w} 0)` : 'matrix(1 0 0 1 0 0)' }, host);
       const im = el('image', { x: 0, y: 0, width: def.w, height: def.h, preserveAspectRatio: 'none', class: 'bv-img' }, ig);
       im.setAttribute('href', opt.image.src);
     }

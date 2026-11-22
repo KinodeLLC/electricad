@@ -1328,6 +1328,37 @@ t('boards: onboard LEDs sit where the CAD puts them and act like the real ones',
   // Pico W: the LED is on the wireless chip, shown as not readable
   assert(R.withRevision(B.pico, 'picow').def.decor.some((d) => d.kind === 'led' && d.unreadable && d.tele == null));
 });
+t('boards: clones are their own revisions, genuine boards stay the default, nothing is guessed', () => {
+  const B = global.window.PINODE_BOARDS, R = global.window.PINODE_BOARD_REVISIONS;
+  require('../renderer/boardparts.js');
+  // the FQBN picks the genuine board first; clones are chosen by hand
+  assert.strictEqual(B.mega.revisions.find((r) => r.fqbn.test('arduino:avr:mega')).id, 'rev3');
+  assert.strictEqual(B.uno.revisions.find((r) => r.fqbn.test('arduino:avr:uno')).id, 'r3');
+  for (const def of [B.uno, B.mega]) for (const r of def.revisions.filter((x) => x.clone)) {
+    const w = R.withRevision(def, r.id).def;
+    assert.strictEqual(w.pins.length, def.pins.length, r.id + ' keeps the pin order');
+    assert(w.pins.every((p, i) => p.label === def.pins[i].label), r.id + ' keeps the pin names');
+    assert(/^#[0-9a-f]{6}$/.test(w.mask), r.id + ' mask');
+    assert(/check/.test(r.note), r.id + ' says what to check');
+    // no parts table: clone parts are never borrowed from the genuine board
+    assert(!global.window.PINODE_BOARD_PARTS[def.id + '/' + r.id], r.id);
+  }
+  // with no photo or design file, a clone draws no chips at all
+  assert(!R.withRevision(B.mega, 'clone-ch340').def.decor.some((d) => d.kind === 'chip' || d.kind === 'led'));
+  assert(R.withRevision(B.mega, 'hw888').def.decor.some((d) => d.label === 'CH340G'));
+  assert(B.mega.revisions.find((r) => r.id === 'hw888').images.some((i) => i.face === 'back'));
+  // silkscreen: from the design files only, white ink, every picture present
+  const fs = require('fs');
+  delete require.cache[require.resolve('../renderer/boardsilk.js')];
+  require('../renderer/boardsilk.js');
+  const S = global.window.PINODE_BOARD_SILK;
+  for (const k of ['uno/r3', 'mega/rev3', 'leonardo/rev3', 'nano/v3', 'featherm4']) assert(S[k] && S[k].top, k);
+  assert(S['mega/rev3'].top.t.some((t) => t[5] === 'COMMUNICATION') && S['mega/rev3'].top.t.some((t) => /MADE IN/.test(t[5])));
+  for (const sk of Object.values(S)) for (const side of ['top', 'bottom']) if (sk[side] && sk[side].img)
+    assert(fs.existsSync(path.join(__dirname, '..', 'renderer', sk[side].img.src)), sk[side].img.src);
+  // the Feather's own artwork goes on the side Adafruit put it (201 = bottom)
+  assert(S.featherm4.bottom.img && S.featherm4.top.img);
+});
 t('boards: every component comes from the makers\' design files, marked only where the print is known', () => {
   require('../renderer/boardparts.js');
   const P = global.window.PINODE_BOARD_PARTS, SRC = global.window.PINODE_BOARD_PARTS_SOURCE;

@@ -18,6 +18,15 @@ design notes for each version are in [docs/ROADMAP.md](docs/ROADMAP.md).
 - Fitted headers are drawn as black plastic with depth: female sockets on the
   shield headers, male 2×3 headers on ICSP (including the USB chip's ICSP on
   the Uno, Mega and Leonardo).
+- Real photos, perspective-corrected so every pad sits on its pin, all
+  openly licensed (credits in renderer/img/boards/CREDITS.md): a genuine
+  UNO R3, and photos are cropped to the board instead of showing the table.
+- Clone boards as revisions you can pick (the genuine board stays the
+  default for detection): the blue SMD UNO with CH340G (photo), the black
+  Mega 2560 + WiFi HW-888 with CH340G and ESP8266 (front and back photos),
+  and the blue CH340G and USB-C Mega clones. Where no photo or design file
+  exists, only what every clone shares is drawn (outline, holes, headers)
+  and the parts are left out rather than guessed.
 
 ## 0.9.6 — Every component, hover box and full card
 
