@@ -710,6 +710,7 @@ window.PinodeWiring = (function () {
     cols.className = 'wcols';
     const colA = document.createElement('div'), colB = document.createElement('div');
     def.pins.forEach((pin, i) => {
+      if (pin.extra) return;   // ICSP repeats and NC: drawn on the live board, not wiring ports
       const key = 'board:' + i;
       const st = pin.tele != null ? pinStates.get(pin.tele) : null;
       const live = st ? (st.mode === 'pwm' ? 'pwm' : (st.level ? 'hi' : 'lo')) : '';

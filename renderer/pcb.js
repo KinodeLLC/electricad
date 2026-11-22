@@ -140,7 +140,8 @@
   // ---- netlist from the canvas -----------------------------------------------
   // the board's own pins → physical pin numbers for boards that plug in
   const BOARD_PINS = {
-    nano: (i) => (i <= 14 ? i + 1 : [30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 17, 16][i - 15]),
+    // 0..14 digital row, 15..28 the other row, 29 AREF (added 0.9.4); ICSP pins have no pad here
+    nano: (i) => (i <= 14 ? i + 1 : i <= 28 ? [30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 17, 16][i - 15] : i === 29 ? 18 : null),
     pico: (i) => (i <= 19 ? i + 1 : 60 - i)
   };
   const BOARD_FP = { nano: 'Nano', pico: 'Pico' };
@@ -175,7 +176,7 @@
     if (boardDef && usedBoard.size) {
       if (BOARD_FP[boardId]) {
         const map = BOARD_PINS[boardId];
-        const pads = boardDef.pins.map((pin, i) => ({ key: 'board:' + i, pad: String(map(i)), label: pin.label }));
+        const pads = boardDef.pins.map((pin, i) => ({ key: 'board:' + i, pad: map(i), label: pin.label })).filter((x) => x.pad != null).map((x) => ({ ...x, pad: String(x.pad) }));
         comps.push({ ref: 'A1', uid: 0, type: 'board', name: boardDef.name, value: boardDef.name, fp: BOARD_FP[boardId], pads });
       } else {
         // boards that don't plug into a PCB connect through a header of the pins used

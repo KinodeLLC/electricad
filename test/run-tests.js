@@ -1219,6 +1219,72 @@ t('parts: resistor values search the full catalogue table in ohms', () => {
   assert.strictEqual(PDB.smartQuery('100nF 0402'), null);
 });
 
+// ---- 0.9.4 boards to scale ---------------------------------------------------
+t('boards: pin order is unchanged for saved projects (new pins only appended)', () => {
+  const B = global.window.PINODE_BOARDS;
+  const OLD = {"uno":"19,18,-,gnd,13,12,11,10,9,8,7,6,5,4,3,2,1,0,-,-,v33,v5,gnd,gnd,vin,14,15,16,17,18,19","nano":"1,0,-,gnd,2,3,4,5,6,7,8,9,10,11,12,vin,gnd,-,v5,-,-,19,18,17,16,15,14,v33,13","leonardo":"3,2,-,gnd,13,12,11,10,9,8,7,6,5,4,3,2,1,0,-,-,v33,v5,gnd,gnd,vin,18,19,20,21,22,23","nanoevery":"1,0,-,gnd,2,3,4,5,6,7,8,9,10,11,12,vin,gnd,-,v5,21,20,19,18,17,16,15,14,v33,13","mega":"21,20,-,gnd,13,12,11,10,9,8,7,6,5,4,3,2,1,0,14,15,16,17,18,19,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,-,-,v33,v5,gnd,gnd,vin,54,55,56,57,58,59,60,61,62,63,-,-,-,-,-,-"};
+  for (const [id, seq] of Object.entries(OLD)) {
+    const now = B[id].pins.map((p) => (p.tele == null ? (p.power || '-') : p.tele)).slice(0, seq.split(',').length).join(',');
+    assert.strictEqual(now, seq, id);
+  }
+});
+t('boards: Arduino headers sit on the CAD grid, in the right places', () => {
+  const B = global.window.PINODE_BOARDS;
+  const at = (id, label, n = 0) => B[id].pins.filter((p) => p.label === label)[n].at;
+  // Uno R3: D0 at the right end of the top header, A5 at the right of the bottom one
+  assert.deepStrictEqual(at('uno', 'RX0'), [63.5, 50.8]); assert.deepStrictEqual(at('uno', 'A5'), [63.5, 2.54]);
+  assert.deepStrictEqual(at('uno', 'SCL'), [18.796, 50.8]); assert.deepStrictEqual(at('uno', 'VIN'), [45.72, 2.54]);
+  // Mega: even pins on the inner column, 22 at the top, 53 at the bottom, 20/21 on the comms header too
+  assert.deepStrictEqual(at('mega', '22'), [93.98, 48.26]); assert.deepStrictEqual(at('mega', '23'), [96.52, 48.26]);
+  assert.deepStrictEqual(at('mega', '53'), [96.52, 10.16]); assert.deepStrictEqual(at('mega', 'A15'), [91.44, 2.54]);
+  assert.deepStrictEqual(at('mega', 'SDA', 1), [83.82, 50.8]); assert.strictEqual(B.mega.pins.filter((p) => p.label === 'MISO')[0].tele, 50);
+  // Nano: D12 and D13 at the USB end (x small), TX1 and VIN at the far end, on opposite rows
+  assert.deepStrictEqual(at('nano', '12'), [3.81, 16.51]); assert.deepStrictEqual(at('nano', 'D13'), [3.81, 1.27]);
+  assert.deepStrictEqual(at('nano', 'TX1'), [39.37, 16.51]); assert.deepStrictEqual(at('nano', 'VIN'), [39.37, 1.27]);
+  // drawn upright with USB at the top: the digital row is on the right
+  const n = B.nano; const usb = n.decor.find((d) => d.kind === 'usb');
+  assert(usb.y < n.pins[0].y && n.pins.find((p) => p.label === '12').x > n.pins.find((p) => p.label === 'D13').x);
+  // every pad is on the board and no two pads overlap
+  for (const id of ['uno', 'mega', 'nano', 'leonardo', 'nanoevery']) {
+    const ps = B[id].pins;
+    for (const p of ps) assert(p.x > 0 && p.y > 0 && p.x < B[id].w && p.y < B[id].h, id + ' ' + p.label);
+    for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+      const d = Math.hypot(ps[i].at[0] - ps[j].at[0], ps[i].at[1] - ps[j].at[1]);
+      assert(d > 2.5, id + ' pads overlap: ' + ps[i].label + ' / ' + ps[j].label);
+    }
+  }
+});
+t('boards: revisions follow the FQBN and swap names and parts, not pin order', () => {
+  const B = global.window.PINODE_BOARDS, R = global.window.PINODE_BOARD_REVISIONS;
+  const pick = (fqbn) => B.uno.revisions.find((r) => r.fqbn.test(fqbn)).id;
+  assert.strictEqual(pick('arduino:avr:uno'), 'r3'); assert.strictEqual(pick('arduino:renesas_uno:minima'), 'r4minima');
+  assert.strictEqual(pick('arduino:renesas_uno:unor4wifi'), 'r4wifi');
+  const m = R.withRevision(B.uno, 'r4minima');
+  assert.strictEqual(m.def.pins.length, B.uno.pins.length); assert.strictEqual(m.def.pins[31].label, 'BOOT');
+  assert.strictEqual(B.uno.pins[31].label, 'NC'); assert(m.def.decor.some((d) => d.label === 'RA4M1'));
+  // every picture named exists, has a licence and a source
+  const fs = require('fs');
+  for (const def of Object.values(B)) for (const r of def.revisions || []) for (const im of r.images) {
+    assert(fs.existsSync(path.join(__dirname, '..', 'renderer', im.src)), im.src);
+    assert(/^CC BY-SA [34]\.0$/.test(im.license) && /^https:\/\//.test(im.source) && im.credit, im.id);
+  }
+});
+t('boards: the back view mirrors and rotation keeps the board in view', () => {
+  global.window.PinodeBoard = undefined;
+  require('../renderer/board.js');
+  const V = global.window.PinodeBoard.viewTransform;
+  const def = global.window.PINODE_BOARDS.uno;
+  const usb = def.decor.find((d) => d.kind === 'usb');
+  const front = V(def, 'front', 0), back = V(def, 'back', 0);
+  assert(front.pt(usb.x, usb.y)[0] < def.w / 2 && back.pt(usb.x, usb.y)[0] > def.w / 2, 'USB swaps sides when turned over');
+  for (const rot of [0, 90, 180, 270]) for (const face of ['front', 'back']) {
+    const T = V(def, face, rot);
+    for (const p of def.pins) { const [x, y] = T.pt(p.x, p.y); assert(x >= 0 && y >= 0 && x <= T.vw + 1e-6 && y <= T.vh + 1e-6, rot + face); }
+  }
+  // 90° clockwise: the top header ends up on the right
+  const r = V(def, 'front', 90); assert(r.pt(def.pins[0].x, def.pins[0].y)[0] > r.vw / 2);
+});
+
 Promise.all(pending).then(() => {
   console.log(failures ? `\n${failures} FAILED` : '\nall tests passed');
   process.exit(failures ? 1 : 0);

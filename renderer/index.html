@@ -200,8 +200,19 @@
           <span class="grow"></span>
           <select id="boardViewSelect" class="input slim"></select>
         </div>
+        <div class="board-tools">
+          <select id="boardRev" class="input slim" title="Board revision: pictures, LEDs and pin names follow it"></select>
+          <span class="seg" id="boardMode">
+            <button data-m="drawn" title="Drawing, to scale from the board's CAD files">Drawn</button><button data-m="image" title="Real picture with live pins on it">Image</button><button data-m="both" title="Drawing and picture side by side">Both</button><button data-m="overlay" title="Drawing laid over the picture">Overlay</button>
+          </span>
+          <select id="boardImg" class="input slim" title="Which picture"></select>
+          <input id="boardOpacity" type="range" min="10" max="90" value="50" title="Drawing opacity over the picture">
+          <span class="grow"></span>
+          <button id="boardFace" class="mini" title="Turn the board over (mirrored, as you would see the back)">Front</button>
+          <button id="boardRot" class="mini" title="Rotate 90° clockwise">⟳ 0°</button>
+        </div>
         <div id="boardHost"></div>
-        <div class="img-report"><a href="#" id="boardReport" title="Tell us if this board picture is wrong: pins, headers, orientation or revision">⚑ Report wrong image</a></div>
+        <div class="img-report"><span id="boardCredit" class="dim2"></span><a href="#" id="boardReport" title="Tell us if this board picture is wrong: pins, headers, orientation or revision">⚑ Report wrong image</a></div>
         <div id="pinInspector" class="dim">Hover a pin.</div>
       </div>
       <div id="splitBoard" class="hsplit" title="Drag to resize"></div>

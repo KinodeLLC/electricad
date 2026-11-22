@@ -49,6 +49,29 @@ Open **Parts** and stay on the **JLCPCB / LCSC** tab. Type a part number (NE555)
 - Parts you open are saved on this computer, so they work offline. Parts you place are listed under My parts.
 - Symbols and footprints come from the KiCad libraries (CC-BY-SA 4.0, KiCad Libraries Team).
 
+## The Live Board
+
+The board on the right is drawn to scale from the manufacturer's CAD files for
+the Arduino Uno (R3, R4 Minima, R4 WiFi), Mega 2560, Nano, Leonardo and Nano
+Every: every header pin, ICSP pin, LED and mounting hole is where it is on the
+real board. Other boards show their pins in the right order but not to scale
+(the line under the board says which).
+
+- **Drawn / Image / Both / Overlay**: the drawing, a real picture with the live
+  pins on it, the two side by side, or the drawing laid over the picture (the
+  slider sets how see-through it is). Pictures are official Arduino images or
+  openly licensed photos, straightened so every pad lands on its pin. The
+  credit and licence are under the picture.
+- **Revision**: UNO R3, R4 Minima and R4 WiFi have their own picture, LEDs and
+  pin names. It follows the board you pick in the toolbar, and you can change
+  it by hand.
+- **Front / Back**: turn the board over. Everything is mirrored, exactly as you
+  see it when you flip the real board left to right. Parts on the top side are
+  drawn as faint outlines.
+- **⟳**: rotate 90° clockwise, to match how the board sits on your desk.
+- **⚑ Report wrong image**: if a picture, pin or revision is wrong, this sends
+  the exact picture, revision and view to Kinode.
+
 ## Reporting a problem
 
 **Help → Report a Bug…** (or the command palette) sends a report to Kinode with the app version, the Windows version and your board, plus an optional screenshot. **⚑ Report wrong image** under the Live Board reports a picture that does not match your board.

@@ -3,6 +3,21 @@
 Target: Visual Studio-grade depth, every feature justified by microcontroller
 work. Phases ordered so each ships something usable.
 
+## 0.9.4 — Real boards
+
+- Uno R3, Mega 2560 Rev3, Nano 3.x, Leonardo, Nano Every drawn in mm from
+  Arduino's CAD (Eagle .brd / Gerber, CC-BY-SA): headers, ICSP, NC, Mega
+  XIO 5V/GND and comms 20/21, LEDs, holes, outline. Pin order unchanged
+  (new pins appended, `extra` pins not wiring ports).
+- Pictures rectified into the drawing frame (renderer/img/boards, 5 px/unit):
+  official Arduino illustrations for all, photos for R4 Minima/WiFi,
+  Leonardo, Nano Every, Nano (back). Credits in each entry + CREDITS.md.
+- Views drawn/image/both/overlay, front/back (mirrored), rotate; revision
+  picker with FQBN detection; reports carry imageId + revision + view.
+- Next: Pico, ESP32 DevKitC V4 / DOIT V1 and NodeMCU v2/v3 as separate
+  to-scale revisions once a manufacturer drawing is found; back photos for
+  the Unos and Mega.
+
 ## 0.9.3 — Real parts, grid, bug reports
 
 - Parts view → JLCPCB / LCSC: live search (jlcsearch.tscircuit.com; resistor

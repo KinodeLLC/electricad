@@ -960,7 +960,12 @@
     $('btnBoard').textContent = label || fqbn || 'Select board';
     $('btnBoard').title = fqbn ? 'FQBN: ' + fqbn : 'Board (FQBN)';
     for (const def of Object.values(PINODE_BOARDS)) {
-      if (fqbn && def.fqbnMatch.test(fqbn)) { setBoardView(def.id); break; }
+      if (fqbn && def.fqbnMatch.test(fqbn)) {
+        // the board's FQBN names the exact revision when it can (UNO R3 / R4 Minima / R4 WiFi)
+        const r = (def.revisions || []).find((x) => x.fqbn && x.fqbn.test(fqbn));
+        if (r) { BV.rev[def.id] = r.id; saveBV(); }
+        setBoardView(def.id); break;
+      }
     }
     renderStatusBoard();
     if (typeof recheckPins === 'function' && S.openTabs) recheckPins();
@@ -2308,11 +2313,96 @@
   }
 
   // ---- live board ----------------------------------------------------------
+  // view settings survive restarts; the revision is remembered per board
+  const BV = (() => { try { return JSON.parse(localStorage.getItem('ec_boardview')) || {}; } catch (e) { return {}; } })();
+  BV.mode = BV.mode || 'image'; BV.face = BV.face || 'front'; BV.rot = BV.rot || 0;
+  BV.opacity = BV.opacity != null ? BV.opacity : 0.5; BV.rev = BV.rev || {}; BV.pick = BV.pick || {};
+  const saveBV = () => { try { localStorage.setItem('ec_boardview', JSON.stringify(BV)); } catch (e) { /* private window */ } };
+  function currentBoard() {
+    const base = PINODE_BOARDS[S.boardDefId];
+    return window.PINODE_BOARD_REVISIONS.withRevision(base, BV.rev[S.boardDefId]);
+  }
+  function boardImagesNow() {
+    const { rev } = currentBoard();
+    return ((rev && rev.images) || []).filter((i) => i.face === BV.face);
+  }
+  function currentBoardImage() {
+    const imgs = boardImagesNow();
+    const key = S.boardDefId + ':' + ((currentBoard().rev || {}).id || '') + ':' + BV.face;
+    return imgs.find((i) => i.id === BV.pick[key]) || imgs.find((i) => i.kind === 'photo') || imgs[0] || null;
+  }
   function setBoardView(id) {
     S.boardDefId = id;
     $('boardViewSelect').value = id;
-    S.board = PinodeBoard.create($('boardHost'), PINODE_BOARDS[id], onPinHover);
+    renderBoard();
   }
+  function renderBoard() {
+    const { def, rev } = currentBoard();
+    const base = PINODE_BOARDS[S.boardDefId];
+    // revision picker
+    const rs = $('boardRev');
+    rs.innerHTML = '';
+    for (const r of base.revisions || []) { const o = document.createElement('option'); o.value = r.id; o.textContent = r.name; o.title = r.note || ''; rs.appendChild(o); }
+    rs.style.display = (base.revisions || []).length > 1 ? '' : 'none';
+    if (rev) { rs.value = rev.id; rs.title = rev.note || ''; }
+    // pictures for this side
+    const imgs = boardImagesNow();
+    const image = currentBoardImage();
+    const is = $('boardImg');
+    is.innerHTML = '';
+    for (const i of imgs) { const o = document.createElement('option'); o.value = i.id; o.textContent = i.kind === 'photo' ? 'Photo' : 'Arduino image'; is.appendChild(o); }
+    if (image) is.value = image.id;
+    is.style.display = imgs.length > 1 && BV.mode !== 'drawn' ? '' : 'none';
+    $('boardOpacity').style.display = BV.mode === 'overlay' && image ? '' : 'none';
+    $('boardOpacity').value = String(Math.round(BV.opacity * 100));
+    for (const b of $('boardMode').querySelectorAll('button')) {
+      b.classList.toggle('on', b.dataset.m === BV.mode);
+      b.disabled = b.dataset.m !== 'drawn' && !imgs.length;
+    }
+    $('boardFace').textContent = BV.face === 'back' ? 'Back' : 'Front';
+    $('boardFace').classList.toggle('on', BV.face === 'back');
+    $('boardRot').textContent = '⟳ ' + BV.rot + '°';
+    S.board = PinodeBoard.create($('boardHost'), def, onPinHover, {
+      mode: imgs.length ? BV.mode : 'drawn', face: BV.face, rot: BV.rot, image, opacity: BV.opacity,
+      title: rev ? 'Arduino ' + rev.name.replace(/^Arduino /, '') : def.name });
+    if (BV.mode !== 'drawn' && !imgs.length) {
+      const n = document.createElement('div');
+      n.className = 'bv-note';
+      n.textContent = (base.revisions ? 'No picture of the ' + BV.face + ' of this board yet' : 'No checked picture of this board yet') + ', showing the drawing';
+      $('boardHost').appendChild(n);
+    }
+    // credit for the picture on screen, or where the drawing comes from
+    const cr = $('boardCredit');
+    cr.innerHTML = '';
+    if (image && (BV.mode !== 'drawn')) {
+      cr.append((image.kind === 'photo' ? 'Photo: ' : 'Image: ') + image.credit + ', ');
+      const a = document.createElement('a'); a.href = '#'; a.textContent = image.license; a.title = image.source;
+      a.addEventListener('click', (e) => { e.preventDefault(); api.openExternal(image.source); });
+      cr.append(a, image.kind === 'photo' ? ' · straightened to fit the pins' : '');
+    } else {
+      cr.textContent = base.geo ? 'Drawn to scale from ' + base.geo.source : 'Pin order checked, positions approximate';
+    }
+    cr.title = cr.textContent;
+    if (S.lastPins && S.lastPins.length) S.board.paint(S.lastPins, (S.lastSnap && S.lastSnap.analog) || []);
+  }
+  // side by side or stacked depends on the pane's shape: redo it when that changes
+  if (window.ResizeObserver) {
+    let rz = 0, lastDir = '';
+    new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(() => {
+      if (BV.mode !== 'both' || !S.board) return;
+      const h = $('boardHost'), dir = h.clientWidth > h.clientHeight * 1.6 ? 'w' : 't';
+      if (dir !== lastDir) { lastDir = dir; renderBoard(); }
+    }, 150); }).observe($('boardHost'));
+  }
+  $('boardRev').addEventListener('change', (e) => { BV.rev[S.boardDefId] = e.target.value; saveBV(); renderBoard(); });
+  $('boardImg').addEventListener('change', (e) => { BV.pick[S.boardDefId + ':' + ((currentBoard().rev || {}).id || '') + ':' + BV.face] = e.target.value; saveBV(); renderBoard(); });
+  $('boardMode').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b || b.disabled) return; BV.mode = b.dataset.m; saveBV(); renderBoard(); });
+  $('boardFace').addEventListener('click', () => { BV.face = BV.face === 'back' ? 'front' : 'back'; saveBV(); renderBoard(); });
+  $('boardRot').addEventListener('click', () => { BV.rot = (BV.rot + 90) % 360; saveBV(); renderBoard(); });
+  $('boardOpacity').addEventListener('input', (e) => {
+    BV.opacity = Number(e.target.value) / 100; saveBV();
+    const d = $('boardHost').querySelector('.bv-overlay .bv-draw'); if (d) d.setAttribute('opacity', String(BV.opacity));
+  });
 
   function onPinHover(pin, latest) {
     const box = $('pinInspector');
@@ -2761,8 +2851,12 @@
   const REPORT_KINDS = [['bug', 'Something is broken'], ['wrong_image', 'A picture is wrong (board, part, pins)'], ['crash', 'The app crashed or froze'], ['feature', 'An idea or request'], ['other', 'Something else']];
   function boardImageReport(extra) {
     const def = PINODE_BOARDS[S.boardDefId] || {};
-    return { kind: 'wrong_image', board: S.boardDefId || S.fqbn || '', boardRevision: (extra && extra.revision) || def.revision || '', view: 'live board',
-      imageId: (extra && extra.imageId) || ('drawn:' + (S.boardDefId || 'unknown')), title: 'Wrong image: ' + (def.name || S.boardDefId || 'board'), ...(extra || {}) };
+    const cur = def.pins ? currentBoard() : { rev: null };
+    const image = def.pins && BV.mode !== 'drawn' ? currentBoardImage() : null;
+    const rev = cur.rev ? cur.rev.name : '';
+    return { kind: 'wrong_image', board: S.boardDefId || S.fqbn || '', boardRevision: (extra && extra.revision) || rev, view: 'live board · ' + BV.mode + ' · ' + BV.face + ' · ' + BV.rot + '°',
+      imageId: (extra && extra.imageId) || (image ? image.id : 'drawn:' + (S.boardDefId || 'unknown') + (cur.rev ? ':' + cur.rev.id : '') + ':' + BV.face),
+      title: 'Wrong image: ' + (rev || def.name || S.boardDefId || 'board') + (BV.face === 'back' ? ' (back)' : ''), ...(extra || {}) };
   }
   window.electricadReportBug = (pre) => reportBug(pre || {});
   window.electricadReportImage = (extra) => reportBug(boardImageReport(extra));
@@ -4953,6 +5047,9 @@ void loop()  { ELECTRICAD_TICK(); /* your code */ }</pre>
     docMarkdown(box.querySelector('.md-preview'), md);
   }
   const WHATS_NEW = [
+    ['📷 Real boards (0.9.4)', 'The Live Board shows the real board: official Arduino images and real photos, lined up pad for pad with the live pins. Pick Drawn, Image, Both (side by side) or Overlay, turn the board over to see the back, and rotate it in 90° steps.'],
+    ['📐 Drawn to scale (0.9.4)', 'Uno, Mega, Nano, Leonardo and Nano Every are now drawn from Arduino\'s own CAD files: every header, ICSP pin, LED and mounting hole where it really is. The Mega now has its 2×18 header the right way round and the Nano is no longer mirrored.'],
+    ['🔀 Revisions (0.9.4)', 'UNO R3, R4 Minima and R4 WiFi each have their own picture, LEDs and pin names, picked from the board you select. ⚑ Report wrong image sends the exact picture and revision.'],
     ['🔎 Real parts (0.9.3)', 'Parts → JLCPCB / LCSC searches every part JLCPCB can assemble: price, stock, specs, datasheet, the KiCad pinout and footprint. Place it and it lands on the canvas, the PCB (real footprint) and the BOM with its LCSC number.'],
     ['⇄ Choose a real part (0.9.3)', 'Right-click a resistor, LED, regulator or transistor on the canvas and pick a real catalogue part for it. Its wires stay connected.'],
     ['⚑ Report a bug (0.9.3)', 'Help → Report a Bug, or ⚑ under the Live Board for a wrong picture. Reports go straight to Kinode, with an optional screenshot.'],

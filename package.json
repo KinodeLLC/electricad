@@ -1,7 +1,7 @@
 {
   "name": "electricad",
   "productName": "ElectriCAD",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "The hardware IDE that can see your pins. Arduino + Raspberry Pi, live board views, native AI.",
   "main": "main/main.js",
   "scripts": {
