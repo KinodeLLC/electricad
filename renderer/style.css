@@ -795,7 +795,7 @@ body.pcb-full #bottom, body.pcb-full #splitBottom { display: none !important; }
 .rp-ctx { margin: 8px 0; }
 .rp-check { display: flex; gap: 8px; align-items: center; margin: 8px 0; font-size: 12px; }
 .rp-err a { color: var(--accent); }
-.img-report { display: flex; gap: 10px; justify-content: flex-end; align-items: baseline; padding: 2px 10px; font-size: 11px; }
+.img-report { display: flex; gap: 10px; justify-content: flex-end; align-items: center; padding: 6px 10px; font-size: 11px; }
 .img-report #boardCredit { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .img-report #boardCredit a { color: var(--faint); }
 .board-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line); font-size: 12px; }
@@ -858,3 +858,15 @@ body.pcb-full #bottom, body.pcb-full #splitBottom { display: none !important; }
 .bpc-mark { font-family: var(--mono); background: #1b1b1d; color: #ddd; padding: 6px 10px; border-radius: 4px; display: inline-block; margin: 4px 0; }
 .bpc-alt { cursor: pointer; }
 .bpc-alt:hover { border-color: var(--accent); }
+
+/* Report wrong image: a real button, easy to find under the picture */
+.report-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; font-weight: 600;
+  color: var(--warn); background: rgba(255, 204, 102, 0.08); border: 1.5px solid var(--warn); border-radius: 6px; cursor: pointer; }
+.report-btn:hover { background: var(--warn); color: #111; }
+
+/* silkscreen from the design file */
+.silk-line { fill: none; stroke: #e9eef0; stroke-linecap: round; stroke-linejoin: round; }
+.silk-fill { fill: #e9eef0; stroke: none; }
+.silk-text { fill: #e9eef0; font-family: "Arial Narrow", "Roboto Condensed", "DejaVu Sans Condensed", sans-serif; font-weight: 700; white-space: pre; pointer-events: none; }
+.bv-back .silk-line { stroke: #dfe6e8; }
+.has-silk .bv-labels text { display: none; }

@@ -2368,7 +2368,7 @@
     if (S.board && S.board.destroy) S.board.destroy();
     S.board = PinodeBoard.create($('boardHost'), def, onPinHover, {
       mode: imgs.length ? BV.mode : 'drawn', face: BV.face, rot: BV.rot, image, opacity: BV.opacity, battery: BV.battery || 'none',
-      parts: boardPartsNow(), onPart: onBoardPart,
+      parts: boardPartsNow(), onPart: onBoardPart, silk: (window.PINODE_BOARD_SILK || {})[boardPartsKey()],
       title: rev ? (/^(Feather|Pico)/.test(rev.name) ? rev.name : 'Arduino ' + rev.name.replace(/^Arduino /, '')) : def.name });
     $('boardBattery').style.display = S.board.hasCharge ? '' : 'none';
     $('boardBattery').value = BV.battery || 'none';

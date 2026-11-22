@@ -25,6 +25,8 @@ Windows installer and portable .exe:
 The portable .exe runs without installing. Both are free, with no account,
 no trial and no paid tier.
 
+What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
+
 ## Building from source
 
     npm install

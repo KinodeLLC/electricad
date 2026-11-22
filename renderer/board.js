@@ -74,6 +74,7 @@ window.PinodeBoard = (function () {
         el('rect', { x: 1, y: 1, width: def.w - 2, height: def.h - 2, rx: 8, class: 'pcb' + (def.id === 'pi' ? ' pi' : '') + (T.back ? ' back' : '') }, draw);
       }
       for (const h of def.holes || []) el('circle', { cx: h.x, cy: h.y, r: h.r, class: 'hole' }, draw);
+      if (opt.silk && def.geo && def.unitsPerMm) { drawSilk(draw, def, opt.silk[T.back ? 'bottom' : 'top']); if (!opt.pinLabels) svg.classList.add('has-silk'); }
       for (const d of def.decor || []) {
         // from the back you only see what goes through the board: parts on
         // the top side are outlined faintly so you can still find your way
@@ -217,6 +218,43 @@ window.PinodeBoard = (function () {
     svg.querySelectorAll('[data-rgb]').forEach((led) => shared.rgb.push(led));
     svg.querySelectorAll('[data-px]').forEach((px) => { shared.matrix[Number(px.dataset.px)] = shared.matrix[Number(px.dataset.px)] || []; shared.matrix[Number(px.dataset.px)].push(px); });
     return svg;
+  }
+
+  // ---- silkscreen from the design file ---------------------------------------------
+  // shapes are CAD mm (y up); one matrix maps them onto the drawing. Text is
+  // placed point by point so it reads the right way in either orientation.
+  function drawSilk(parent, def, sk) {
+    if (!sk) return;
+    const g0 = def.geo, U = def.unitsPerMm, M = g0.margin || 10;
+    const m = g0.portrait ? [0, U, U, 0, M, M] : [U, 0, 0, -U, M, M + g0.h * U];
+    const layer = el('g', { class: 'bv-silk' }, parent);
+    const shapes = el('g', { transform: 'matrix(' + m.join(' ') + ')' }, layer);
+    // logos and bitmap labels, rasterized from the design file (white ink on clear)
+    if (sk.img) {
+      const { src, x, y, w, h } = sk.img;
+      const im = g0.portrait ? [0, U, -U, 0, M + y * U, M + x * U] : [U, 0, 0, U, M + x * U, M + (g0.h - y) * U];
+      el('image', { href: src, x: 0, y: 0, width: w, height: h, preserveAspectRatio: 'none', class: 'silk-img', transform: 'matrix(' + im.join(' ') + ')' }, layer);
+    }
+    for (const [w, d] of sk.s || []) el('path', { d, class: 'silk-line', 'stroke-width': w }, shapes);
+    if (sk.f && sk.f.length) el('path', { d: sk.f.join(''), class: 'silk-fill' }, shapes);
+    for (const [x, y, size, deg0, align, str, mir] of sk.t || []) {
+      // Eagle keeps text readable: 180° turns flip the anchor instead
+      let deg = ((deg0 % 360) + 360) % 360, al = align;
+      if (deg > 90 && deg <= 270) {
+        deg -= 180;
+        al = al.replace(/left|right/, (v) => (v === 'left' ? 'right' : 'left')).replace(/top|bottom/, (v) => (v === 'top' ? 'bottom' : 'top'));
+      }
+      const [px, py] = def.toUnits(x, y);
+      const a = (deg * Math.PI) / 180;
+      const [bx, by] = def.toUnits(x + Math.cos(a), y + Math.sin(a));
+      const phi = (Math.atan2(by - py, bx - px) * 180) / Math.PI;
+      const fs = size * 1.18 * U;
+      const anchor = /center$/.test(al) || al === 'center' ? 'middle' : /right/.test(al) ? 'end' : 'start';
+      const dy = /^top/.test(al) ? size * U : /^center/.test(al) || al === 'center' ? size * U * 0.5 : 0;
+      const t = el('text', { x: 0, y: +dy.toFixed(2), class: 'silk-text', 'text-anchor': anchor, 'font-size': fs.toFixed(2),
+        transform: `translate(${px.toFixed(2)} ${py.toFixed(2)}) rotate(${phi.toFixed(1)})${mir ? ' scale(-1 1)' : ''}` }, layer);
+      t.textContent = str;
+    }
   }
 
   // ---- components from the design files ---------------------------------------
