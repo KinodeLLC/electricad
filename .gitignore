@@ -1,0 +1,25 @@
+# dependencies and build output
+node_modules/
+dist/
+out/
+
+# local backups and logs
+_backup/
+*.log
+run.log
+
+# raw catalog dumps (regenerate with tools/fetch-catalog-raw.js)
+tools/raw-*.json
+
+# secrets
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

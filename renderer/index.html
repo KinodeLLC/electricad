@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:">
+<title>ElectriCAD</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- top bar: project / board / port / actions -->
+  <header id="topbar">
+    <div class="brand"><span class="brand-mark">◧</span> ElectriCAD</div>
+    <button id="btnProject" class="chip" title="Project (Ctrl+O)">No project</button>
+    <button id="btnBoard" class="chip" title="Board / FQBN (Ctrl+Shift+B)">Select board</button>
+    <button id="btnPort" class="chip" title="Devices (Ctrl+Shift+D)">Select port</button>
+    <div class="grow"></div>
+    <span id="buildState" class="dim hidden"></span>
+    <button id="btnCancel" class="action hidden" title="Cancel the running build">✕ Cancel</button>
+    <button id="btnVerify" class="action" title="Verify (Ctrl+R)">✓ Verify</button>
+    <button id="btnUpload" class="action primary" title="Upload (Ctrl+U)">▶ Upload</button>
+    <button id="btnPalette" class="action" title="Command palette (Ctrl+Shift+P)">⌘</button>
+    <button id="btnFull" class="action" title="Full screen on or off (F11)">⛶</button>
+    <div id="winCtl"><button id="btnMin" class="action" title="Minimise">—</button><button id="btnClose" class="action" title="Close ElectriCAD">✕</button></div>
+  </header>
+
+  <div id="layout">
+    <!-- activity bar -->
+    <nav id="activity">
+      <button data-view="files" class="act on" title="Explorer: your project's files"><span class="ai">🗂</span><span class="al">Files</span></button>
+      <button data-view="search" class="act" title="Search and replace in the project (Ctrl+Shift+F)"><span class="ai">🔍</span><span class="al">Search</span></button>
+      <button data-view="libs" class="act" title="Libraries and board cores (Ctrl+Shift+I)"><span class="ai">📚</span><span class="al">Libraries</span></button>
+      <button data-view="catalog" class="act" title="Adafruit parts catalog (works offline)"><span class="ai">📦</span><span class="al">Parts</span></button>
+      <button id="actWiring" class="act" title="Wiring canvas and circuit simulation (Ctrl+Shift+W)"><span class="ai">🔌</span><span class="al">Wiring</span></button>
+      <button id="actPcb" class="act" title="PCB layout: place, route and order boards (Ctrl+Shift+X)"><span class="ai">🟩</span><span class="al">PCB</span></button>
+      <button data-view="git" class="act" title="Source control (git)"><span class="ai">⎇</span><span class="al">Git</span></button>
+      <button data-view="settings" class="act" title="Settings (Ctrl+,)"><span class="ai">⚙</span><span class="al">Settings</span></button>
+    </nav>
+    <div id="splitAct" class="vsplit" title="Drag to resize the icon bar · double-click for the default size"></div>
+
+    <!-- side panel -->
+    <aside id="side">
+      <div id="view-files" class="view on">
+        <div class="view-head">EXPLORER <span class="grow"></span>
+          <button id="btnNewFile" class="mini" title="New file">＋</button>
+          <button id="btnRefreshTree" class="mini" title="Refresh">⟳</button>
+          <button id="btnNewProject" class="mini" title="New project">▣</button>
+        </div>
+        <div id="tree"></div>
+        <div id="outlineHead" class="view-head">OUTLINE</div>
+        <div id="outline"></div>
+      </div>
+      <div id="view-search" class="view">
+        <div class="view-head">SEARCH</div>
+        <input id="searchBox" class="input" placeholder="Search in project… (Enter)">
+        <div class="cat-filters">
+          <label class="cat-stock"><input type="checkbox" id="searchCase"> match case</label>
+          <label class="cat-stock"><input type="checkbox" id="searchRegex"> regex</label>
+        </div>
+        <div id="searchResults"></div>
+      </div>
+      <div id="view-libs" class="view">
+        <div class="view-head">LIBRARIES</div>
+        <input id="libBox" class="input" placeholder="Search Arduino libraries… (Enter)">
+        <div id="libResults"></div>
+        <div class="view-head">INSTALLED LIBRARIES <span class="grow"></span><button id="btnLibZip" class="mini" title="Install a library from a .zip file">.zip</button><button id="btnLibUpd" class="mini hidden" title="Update every library that has a newer release">⬆ 0</button><button id="btnLibsRefresh" class="mini" title="Refresh">⟳</button></div>
+        <div id="libInstalled"></div>
+        <div class="view-head">BOARD CORES <span class="grow"></span><button id="btnCoreUpd" class="mini" title="Update every installed core">⬆ all</button></div>
+        <div id="coreList"></div>
+      </div>
+      <div id="view-catalog" class="view">
+        <div class="view-head">ADAFRUIT CATALOG <span id="catCount" class="badge off"></span></div>
+        <input id="catBox" class="input" placeholder="Search 5,500+ products…">
+        <div class="cat-filters">
+          <select id="catCategory" class="input slim"><option value="">All categories</option></select>
+          <label class="cat-stock"><input type="checkbox" id="catStock"> in stock</label>
+        </div>
+        <div id="catBench"></div>
+        <div id="catResults"></div>
+        <div class="cat-foot">
+          <button id="catRefresh" class="mini" title="Re-download the catalog from adafruit.com (2 requests)">⟳ Refresh data</button>
+          <span id="catBaked" class="dim" style="padding:0"></span>
+        </div>
+      </div>
+      <div id="view-git" class="view">
+        <div class="view-head">SOURCE CONTROL</div>
+        <div id="gitPanel"></div>
+      </div>
+      <div id="view-settings" class="view">
+        <div class="view-head">SETTINGS</div>
+        <div id="settingsPanel"></div>
+      </div>
+    </aside>
+    <div id="splitSide" class="vsplit" title="Drag to resize"></div>
+
+    <!-- center: editor + bottom panel -->
+    <main id="center">
+      <div id="tabs"></div>
+      <div id="editor"></div>
+      <div id="welcome" class="hidden"></div>
+      <div id="wiringHost" class="hidden"></div>
+      <div id="pcbHost" class="hidden"></div>
+      <div id="splitBottom" class="hsplit" title="Drag to resize"></div>
+      <div id="bottom">
+        <div id="bottomTabs">
+          <button data-panel="serial" class="btab on">Serial Monitor</button>
+          <button data-panel="plotter" class="btab">Plotter</button>
+          <button data-panel="timeline" class="btab">Pin Timeline</button>
+          <button data-panel="i2c" class="btab">I2C Bus <span id="i2cCount" class="badge off"></span></button>
+          <button data-panel="problems" class="btab">Problems <span id="problemCount" class="badge off"></span></button>
+          <button data-panel="output" class="btab">Output</button>
+          <div class="grow"></div>
+          <div id="toolsSerial" class="ptools">
+            <input id="serialFilter" class="input slim" placeholder="filter…" title="Show only lines containing this text">
+            <select id="serialBaud" class="input slim" title="Baud rate">
+              <option>300</option><option>1200</option><option>2400</option><option>4800</option><option>9600</option>
+              <option>19200</option><option>38400</option><option>57600</option><option>74880</option>
+              <option>115200</option><option>230400</option><option>250000</option><option>460800</option>
+              <option>500000</option><option>921600</option><option>1000000</option><option>2000000</option>
+            </select>
+            <select id="serialEnding" class="input slim" title="Line ending sent after your text">
+              <option value="none" title="No line ending">no EOL</option><option value="lf" title="Newline">NL</option>
+              <option value="cr" title="Carriage return">CR</option><option value="crlf" title="Both NL &amp; CR">NL+CR</option>
+            </select>
+            <button id="serialTs" class="mini" title="Timestamps: off (click for clock time, again for time between lines)">⏱</button>
+            <button id="serialFreeze" class="mini" title="Freeze the display while data keeps arriving">❄</button>
+            <button id="serialRec" class="mini" title="Record every received line to a file">⏺</button>
+            <button id="serialDTR" class="mini" title="Toggle DTR (ESP32 boot mode, resets)">DTR</button>
+            <button id="serialRTS" class="mini" title="Toggle RTS (ESP32 EN / reset line)">RTS</button>
+            <button id="serialCtrlC" class="mini" title="Send Ctrl+C (stop a Python program)">^C</button>
+            <button id="serialCtrlD" class="mini" title="Send Ctrl+D (soft reboot a Python board)">^D</button>
+            <button id="serialHex" class="mini" title="Hex view: show received bytes and send raw bytes">0x</button>
+            <button id="serialScroll" class="mini on" title="Autoscroll">⇩</button>
+            <button id="serialReset" class="mini" title="Reset the board (DTR/RTS pulse)">↻</button>
+            <button id="serialSave" class="mini" title="Save log to a file">💾</button>
+            <button id="serialClear" class="mini" title="Clear">⌫</button>
+          </div>
+          <div id="toolsPlotter" class="ptools hidden">
+            <select id="plotWindow" class="input slim" title="Points shown">
+              <option value="200">200 pts</option><option value="600" selected>600 pts</option><option value="2000">2000 pts</option>
+            </select>
+            <button id="plotPause" class="mini" title="Pause / resume">❚❚</button>
+            <button id="plotStats" class="mini" title="Show min / max / average for each series">μ</button>
+            <button id="plotY" class="mini" title="Fixed Y range (blank = automatic)">Y</button>
+            <button id="plotCsv" class="mini" title="Export the captured data as CSV">CSV</button>
+            <button id="plotPng" class="mini" title="Save the plot as a PNG image">PNG</button>
+            <button id="plotClear" class="mini" title="Clear">⌫</button>
+          </div>
+          <div id="toolsTimeline" class="ptools hidden">
+            <select id="tlSpan" class="input slim" title="Window">
+              <option value="2000">2 s</option><option value="5000">5 s</option><option value="10000" selected>10 s</option><option value="30000">30 s</option>
+            </select>
+            <button id="tlPause" class="mini" title="Freeze the trace">❚❚</button>
+            <button id="tlCsv" class="mini" title="Export the pin transitions as CSV">CSV</button>
+            <button id="tlClear" class="mini" title="Clear">⌫</button>
+          </div>
+          <div id="toolsOutput" class="ptools hidden">
+            <button id="outputClear" class="mini" title="Clear">⌫</button>
+          </div>
+        </div>
+        <div id="panel-serial" class="bpanel on">
+          <div id="serialSendRow">
+            <input id="serialSend" class="input slim" placeholder="Send to the board… (Enter sends, ↑/↓ history)">
+            <button id="serialSendBtn" class="mini" title="Send the line">Send</button>
+            <button id="serialRepeat" class="mini" title="Send a line repeatedly every N ms">⟳</button>
+            <button id="serialType" class="mini" title="Send as you type: every key goes out immediately">⌨</button>
+          </div>
+          <div id="serialLog" class="log"></div>
+        </div>
+        <div id="panel-plotter" class="bpanel"><canvas id="plotCanvas"></canvas></div>
+        <div id="panel-timeline" class="bpanel"><canvas id="timelineCanvas"></canvas></div>
+        <div id="panel-i2c" class="bpanel"><div id="i2cList" class="log"></div></div>
+        <div id="panel-problems" class="bpanel"><div id="problemsList" class="log"></div></div>
+        <div id="panel-output" class="bpanel"><div id="outputLog" class="log"></div></div>
+      </div>
+    </main>
+
+    <!-- right: live board + AI -->
+    <div id="splitRight" class="vsplit" title="Drag to resize"></div>
+    <aside id="right">
+      <div id="boardPane">
+        <div class="view-head">LIVE BOARD
+          <span id="teleState" class="badge off">no telemetry</span>
+          <span class="grow"></span>
+          <select id="boardViewSelect" class="input slim"></select>
+        </div>
+        <div id="boardHost"></div>
+        <div id="pinInspector" class="dim">Hover a pin.</div>
+      </div>
+      <div id="splitBoard" class="hsplit" title="Drag to resize"></div>
+      <div id="aiPane">
+        <div class="view-head">AI COPILOT
+          <span class="grow"></span>
+          <button id="aiContextBtn" class="mini on" title="Attach live hardware context">ctx</button>
+          <button id="aiClearBtn" class="mini" title="New conversation">⌫</button>
+          <button id="aiStopBtn" class="mini" title="Stop">■</button>
+        </div>
+        <div id="aiLog"></div>
+        <div id="aiInputRow">
+          <textarea id="aiInput" placeholder="Ask about your code, your wiring, or why pin 9 isn't doing what you think… (Enter to send, Shift+Enter for a new line)"></textarea>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- command palette -->
+  <div id="palette" class="hidden">
+    <input id="paletteInput" placeholder="Type a command…">
+    <div id="paletteList"></div>
+  </div>
+
+  <!-- context menu -->
+  <div id="ctxMenu" class="hidden"></div>
+
+  <!-- toast + statusbar -->
+  <div id="toast" class="hidden"></div>
+  <footer id="statusbar">
+    <span id="stToolchain">toolchain: checking…</span>
+    <span id="stSerial">serial: closed</span>
+    <span id="stPi">pi: off</span>
+    <span id="stMemory" class="hidden"></span>
+    <span class="grow"></span>
+    <span id="stRx"></span>
+    <span id="stEditor"></span>
+    <span id="stBoard"></span>
+    <span id="stCursor"></span>
+  </footer>
+
+  <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script src="boards.js"></script>
+  <script src="board.js"></script>
+  <script src="sim.js"></script>
+  <script src="history.js"></script>
+  <script src="parts.js"></script>
+  <script src="util.js"></script>
+  <script src="arduino-api.js"></script>
+  <script src="format.js"></script>
+  <script src="pincheck.js"></script>
+  <script src="calc.js"></script>
+  <script src="tools.js"></script>
+  <script src="pcb.js"></script>
+  <script src="wiring.js"></script>
+  <script src="pcbview.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
