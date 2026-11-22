@@ -112,6 +112,59 @@ window.PinodeBoard3D = (function () {
   }
 
   // ---- the 3D view ----------------------------------------------------------------
+  // ── camera ────────────────────────────────────────────────────────────
+  // theta: the angle round the board from +x; phi: from straight above.
+  // "Front" looks at the edge nearest you in the Top view (the -y edge), as
+  // CAD tools do; Bottom turns the board over sideways like the 2D back face.
+  const ISO_PHI = Math.acos(1 / Math.sqrt(3));
+  const PRESETS = {
+    home:   { theta: -Math.PI / 2 - 0.5, phi: 0.85 },
+    iso:    { theta: -Math.PI * 3 / 4, phi: ISO_PHI },
+    top:    { theta: -Math.PI / 2, phi: 0 },
+    bottom: { theta: Math.PI / 2, phi: Math.PI },
+    front:  { theta: -Math.PI / 2, phi: Math.PI / 2 },
+    back:   { theta: Math.PI / 2, phi: Math.PI / 2 },
+    left:   { theta: Math.PI, phi: Math.PI / 2 },
+    right:  { theta: 0, phi: Math.PI / 2 }
+  };
+  const PHI_MIN = 0.0005, PHI_MAX = Math.PI - 0.0005;
+  const clampPhi = (p) => Math.max(PHI_MIN, Math.min(PHI_MAX, p));
+  // the same direction, reached the short way round from where we are
+  const nearestAngle = (cur, goal) => goal + 2 * Math.PI * Math.round((cur - goal) / (2 * Math.PI));
+  // frame-rate independent easing toward the goal
+  const ease = (dt, rate) => 1 - Math.exp(-dt * rate);
+  // camera up: the direction of increasing phi reversed, so it never flips
+  const upFor = (theta, phi) => [-Math.cos(phi) * Math.cos(theta), -Math.cos(phi) * Math.sin(theta), Math.sin(phi)];
+
+  const VIEW_ICON = { home: '⌂', iso: '◇', top: '▣', bottom: '▢', front: '▭', back: '▭', left: '▯', right: '▯' };
+  const VIEW_BTNS = [
+    ['home', 'Home', 'H', 'Back to the starting view'],
+    ['iso', 'Iso', '0', 'Isometric view from the front left corner'],
+    ['top', 'Top', '5', 'Look straight down at the top'],
+    ['bottom', 'Bottom', '6', 'Turn the board over to see the bottom'],
+    ['front', 'Front', '1', 'Look at the front edge'],
+    ['back', 'Back', '2', 'Look at the back edge'],
+    ['left', 'Left', '3', 'Look at the left edge'],
+    ['right', 'Right', '4', 'Look at the right edge']
+  ];
+  const PAD_BTNS = [
+    ['spinL', '⟲', 'Left', 'Spin left (← or A, hold to keep going)'],
+    ['tiltU', '▲', 'Up', 'Tilt up (↑ or W)'],
+    ['spinR', '⟳', 'Right', 'Spin right (→ or D)'],
+    ['zoomIn', '＋', 'Zoom', 'Zoom in (+ or wheel)'],
+    ['tiltD', '▼', 'Down', 'Tilt down (↓ or S)'],
+    ['zoomOut', '－', 'Zoom', 'Zoom out (− or wheel)'],
+    ['fit', '⤢', 'Fit', 'Fit the whole board in view (F, or double-click)'],
+    ['spin', '↻', 'Auto', 'Auto-spin on or off (Space)'],
+    ['help', '?', 'Keys', 'All mouse, touchpad and keyboard controls (?)']
+  ];
+  const HELP = [
+    ['Mouse', [['Left drag', 'Spin and tilt'], ['Right drag', 'Move (pan)'], ['Shift + drag', 'Move (pan)'], ['Wheel', 'Zoom at the pointer'], ['Double-click', 'Fit the board'], ['Click a part', 'Open its card']]],
+    ['Touchpad', [['Click + drag', 'Spin and tilt'], ['Pinch', 'Zoom'], ['Two-finger swipe sideways', 'Spin'], ['Two-finger swipe up/down', 'Zoom']]],
+    ['Touch', [['One finger', 'Spin and tilt'], ['Two fingers', 'Pinch to zoom, drag to move']]],
+    ['Keyboard (click the view first)', [['← → or A D', 'Spin'], ['↑ ↓ or W S', 'Tilt'], ['Shift + arrows', 'Move (pan)'], ['+ −  or PgUp PgDn', 'Zoom'], ['1 2 3 4', 'Front, Back, Left, Right'], ['5 6 0', 'Top, Bottom, Iso'], ['H / Home', 'Home view'], ['F', 'Fit'], ['Space', 'Auto-spin'], ['?', 'This list'], ['Esc', 'Close this list']]]
+  ];
+
   function create(host, def, opts) {
     const opt = Object.assign({}, opts || {});
     host.innerHTML = '';
@@ -124,11 +177,24 @@ window.PinodeBoard3D = (function () {
     wrap.appendChild(note);
     const bar = document.createElement('div');
     bar.className = 'b3d-bar';
-    bar.innerHTML = '<button class="mini" data-v="top" title="Look straight down at the top">Top</button>' +
-      '<button class="mini" data-v="tilt" title="Tilted view">Tilt</button>' +
-      '<button class="mini" data-v="bottom" title="Look at the back">Bottom</button>' +
-      '<span class="dim2">Drag to spin · wheel to zoom · double-click to reset</span>';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', '3D views');
+    bar.innerHTML = VIEW_BTNS.map(([v, label, key, tip]) =>
+      `<button class="b3d-btn" data-v="${v}" title="${tip} (${key})" aria-label="${label} view (${key})"><span class="b3d-ic">${VIEW_ICON[v]}</span><span>${label}</span></button>`).join('');
     wrap.appendChild(bar);
+    const pad = document.createElement('div');
+    pad.className = 'b3d-pad';
+    pad.setAttribute('role', 'toolbar');
+    pad.setAttribute('aria-label', '3D movement');
+    pad.innerHTML = PAD_BTNS.map(([a, ic, label, tip]) =>
+      `<button class="b3d-btn${a === 'spin' ? ' b3d-spin' : ''}" data-a="${a}" title="${tip}" aria-label="${tip}"${a === 'spin' ? ' aria-pressed="false"' : ''}><span class="b3d-ic">${ic}</span><span>${label}</span></button>`).join('');
+    wrap.appendChild(pad);
+    const help = document.createElement('div');
+    help.className = 'b3d-help';
+    help.hidden = true;
+    help.innerHTML = '<div class="b3d-help-h"><b>3D controls</b><button class="b3d-btn" data-a="help" title="Close (Esc)" aria-label="Close">✕</button></div>' +
+      HELP.map(([h, rows]) => `<div class="b3d-help-g">${h}</div>` + rows.map(([k, v]) => `<div class="b3d-help-r"><kbd>${k}</kbd><span>${v}</span></div>`).join('')).join('');
+    wrap.appendChild(help);
 
     // two hidden 2D boards (front and back) keep the live state; the 3D
     // faces are pictures of them, refreshed when they change
@@ -151,7 +217,12 @@ window.PinodeBoard3D = (function () {
     const uvB = (x, y) => { const [ux, uy] = def.toUnits(x, y); return [1 - ux / def.w, 1 - uy / def.h]; };
 
     let THREE, renderer, scene, camera, texF, texB, raf = 0, dead = false, dirty = true;
-    const view = { theta: -Math.PI / 2, phi: 0.75, dist: 0, target: null };
+    const goal = { theta: PRESETS.home.theta, phi: PRESETS.home.phi, dist: 0, tx: 0, ty: 0, tz: 0 };
+    const cur = Object.assign({}, goal);
+    const vel = { t: 0, p: 0 };
+    let bounds = null, box = null, fitted = true, spin = false;
+    const reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    try { spin = localStorage.getItem('ec.b3d.autospin') === '1'; } catch (e) { /* storage off */ }
     const parts = (opt.parts || []).filter((c) => c.box);
     const pickables = [];
 
@@ -268,40 +339,163 @@ window.PinodeBoard3D = (function () {
           body({ x1: cx - cr, y1: cy - cr, x2: cx + cr, y2: cy + cr }, T + (w > 4.5 ? 3.1 : 1.5), w > 4.5 ? 1.2 : 0.4, 0x9a6b3c, { round: true, cap: false });
         }
       }
-      const cx = g0.w / 2, cy = g0.h / 2;
-      view.target = new THREE.Vector3(cx, cy, 2);
-      view.dist = Math.max(g0.w, g0.h) * 1.9;
+      // what "fit" frames: everything on the board, connectors included
+      box = new THREE.Box3().setFromObject(scene);
+      bounds = box.getBoundingSphere(new THREE.Sphere());
+      const c0 = bounds.center;
+      goal.tx = cur.tx = c0.x; goal.ty = cur.ty = c0.y; goal.tz = cur.tz = c0.z;
     }
 
+    // goal is where the controls want the camera; cur eases toward it
+    // the distance that just frames the board's bounding box from this direction
+    function fitDist(theta = goal.theta, phi = goal.phi, center = bounds && bounds.center) {
+      const tV = Math.tan((camera.fov * Math.PI) / 360), tH = tV * camera.aspect;
+      const up = upFor(theta, phi);
+      const back = [Math.sin(phi) * Math.cos(theta), Math.sin(phi) * Math.sin(theta), Math.cos(phi)];
+      const right = [up[1] * back[2] - up[2] * back[1], up[2] * back[0] - up[0] * back[2], up[0] * back[1] - up[1] * back[0]];
+      let need = 10;
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+        const o = [x - center.x, y - center.y, z - center.z];
+        const dot = (v) => v[0] * o[0] + v[1] * o[1] + v[2] * o[2];
+        const c = dot(back);
+        need = Math.max(need, c + Math.abs(dot(right)) / tH, c + Math.abs(dot(up)) / tV);
+      }
+      return need * 1.1 + 4;
+    }
+    function zoomLimits() { const f = fitDist(PRESETS.home.theta, PRESETS.home.phi); return [Math.max(8, f * 0.08), f * 4]; }
     function place() {
-      const { theta, phi, dist, target } = view;
-      camera.position.set(target.x + dist * Math.sin(phi) * Math.cos(theta), target.y + dist * Math.sin(phi) * Math.sin(theta), target.z + dist * Math.cos(phi));
-      camera.up.set(0, 1, 0);
-      if (Math.sin(phi) > 0.02) camera.up.set(0, 0, 1);
-      camera.lookAt(target);
+      const { theta, phi, dist } = cur;
+      camera.position.set(cur.tx + dist * Math.sin(phi) * Math.cos(theta), cur.ty + dist * Math.sin(phi) * Math.sin(theta), cur.tz + dist * Math.cos(phi));
+      camera.up.set(...upFor(theta, phi));
+      camera.lookAt(cur.tx, cur.ty, cur.tz);
       dirty = true;
     }
+    function snap() { Object.assign(cur, goal); place(); }
     function preset(v) {
-      if (v === 'top') { view.theta = -Math.PI / 2; view.phi = 0.001; }
-      else if (v === 'bottom') { view.theta = -Math.PI / 2; view.phi = Math.PI - 0.001; }
-      else { view.theta = -Math.PI / 2 - 0.5; view.phi = 0.85; }
-      place();
+      const p = PRESETS[v] || PRESETS.home;
+      goal.theta = nearestAngle(cur.theta, p.theta);
+      goal.phi = clampPhi(p.phi);
+      vel.t = vel.p = 0;
+      if (v === 'home' || fitted) fit(true);
+      if (reduced) snap();
+      dirty = true;
+    }
+    // frame the whole board; recenter too unless only the distance is wanted
+    function fit(recenter) {
+      fitted = true;
+      if (recenter !== false && bounds) { goal.tx = bounds.center.x; goal.ty = bounds.center.y; goal.tz = bounds.center.z; }
+      goal.dist = fitDist();
+      if (reduced) snap();
+      dirty = true;
+    }
+    function orbit(dt, dp) { goal.theta += dt; goal.phi = clampPhi(goal.phi + dp); dirty = true; }
+    function zoom(f, at) {
+      const [lo, hi] = zoomLimits();
+      const nd = Math.max(lo, Math.min(hi, goal.dist * f));
+      const k = nd / goal.dist;
+      // keep the point under the pointer still while zooming
+      if (at) { goal.tx = at.x + (goal.tx - at.x) * k; goal.ty = at.y + (goal.ty - at.y) * k; goal.tz = at.z + (goal.tz - at.z) * k; }
+      goal.dist = nd;
+      fitted = false; dirty = true;
+    }
+    // move the target across the screen by dx, dy pixels
+    function pan(dx, dy) {
+      const h = Math.max(50, renderer.domElement.clientHeight);
+      const per = (2 * goal.dist * Math.tan((camera.fov * Math.PI) / 360)) / h;
+      const up = upFor(goal.theta, goal.phi);
+      const fwd = [-Math.sin(goal.phi) * Math.cos(goal.theta), -Math.sin(goal.phi) * Math.sin(goal.theta), -Math.cos(goal.phi)];
+      const right = [fwd[1] * up[2] - fwd[2] * up[1], fwd[2] * up[0] - fwd[0] * up[2], fwd[0] * up[1] - fwd[1] * up[0]];
+      goal.tx += (-dx * right[0] + dy * up[0]) * per;
+      goal.ty += (-dx * right[1] + dy * up[1]) * per;
+      goal.tz += (-dx * right[2] + dy * up[2]) * per;
+      // never lose the board: keep the target near it
+      if (bounds) {
+        const r = bounds.radius * 1.5, c0 = bounds.center;
+        const ox = goal.tx - c0.x, oy = goal.ty - c0.y, oz = goal.tz - c0.z, d = Math.hypot(ox, oy, oz);
+        if (d > r) { goal.tx = c0.x + (ox * r) / d; goal.ty = c0.y + (oy * r) / d; goal.tz = c0.z + (oz * r) / d; }
+      }
+      fitted = false; dirty = true;
+    }
+    function setSpin(on) {
+      spin = !!on;
+      const b = pad.querySelector('[data-a="spin"]');
+      if (b) { b.classList.toggle('on', spin); b.setAttribute('aria-pressed', String(spin)); }
+      try { localStorage.setItem('ec.b3d.autospin', spin ? '1' : '0'); } catch (e) { /* private window */ }
+      dirty = true;
+    }
+    function toggleHelp(show) {
+      help.hidden = show == null ? !help.hidden : !show;
+      const b = pad.querySelector('[data-a="help"]');
+      if (b) b.classList.toggle('on', !help.hidden);
     }
     function size() {
-      const w = Math.max(50, wrap.clientWidth), h = Math.max(50, wrap.clientHeight - 0);
+      const w = Math.max(50, wrap.clientWidth), h = Math.max(50, wrap.clientHeight);
       renderer.setSize(w, h, false);
       camera.aspect = w / h; camera.updateProjectionMatrix();
-      // until someone zooms, keep the whole board (and what hangs off it) in view
-      if (!view.zoomed) {
-        const ext = Math.max(g0.w, g0.h) * 0.62 + 12, t = Math.tan((camera.fov * Math.PI) / 360);
-        view.dist = Math.max(ext / t, ext / (t * camera.aspect));
-        place();
-      }
+      // until someone zooms or pans, keep the whole board in view
+      if (fitted) { goal.dist = fitDist(); if (!cur.dist) cur.dist = goal.dist; }
       dirty = true;
     }
-    function loop() {
+
+    // held keys and held buttons move at a steady rate; taps nudge
+    const RATE = { spin: 1.6, tilt: 1.1, zoom: 1.9, pan: 420 };
+    const held = new Set();
+    let holdAct = null, holdT = null;
+    function act(a, s) {
+      // s: seconds of movement (a tap is a fixed nudge)
+      if (a === 'spinL') orbit(-RATE.spin * s, 0);
+      else if (a === 'spinR') orbit(RATE.spin * s, 0);
+      else if (a === 'tiltU') orbit(0, -RATE.tilt * s);
+      else if (a === 'tiltD') orbit(0, RATE.tilt * s);
+      else if (a === 'zoomIn') zoom(Math.exp(-RATE.zoom * s));
+      else if (a === 'zoomOut') zoom(Math.exp(RATE.zoom * s));
+      else if (a === 'panL') pan(RATE.pan * s, 0);
+      else if (a === 'panR') pan(-RATE.pan * s, 0);
+      else if (a === 'panU') pan(0, RATE.pan * s);
+      else if (a === 'panD') pan(0, -RATE.pan * s);
+    }
+    const KEY_ACT = {
+      ArrowLeft: 'spinL', a: 'spinL', ArrowRight: 'spinR', d: 'spinR', ArrowUp: 'tiltU', w: 'tiltU', ArrowDown: 'tiltD', s: 'tiltD',
+      '+': 'zoomIn', '=': 'zoomIn', PageUp: 'zoomIn', '-': 'zoomOut', '_': 'zoomOut', PageDown: 'zoomOut'
+    };
+    const PAN_OF = { spinL: 'panL', spinR: 'panR', tiltU: 'panU', tiltD: 'panD' };
+    const KEY_VIEW = { 1: 'front', 2: 'back', 3: 'left', 4: 'right', 5: 'top', 6: 'bottom', 0: 'iso', h: 'home', Home: 'home' };
+    function heldActs() {
+      const out = [];
+      for (const k of held) {
+        const [key, shift] = k.split('|');
+        const a = KEY_ACT[key];
+        if (a) out.push(shift === '1' && PAN_OF[a] ? PAN_OF[a] : a);
+      }
+      if (holdAct) out.push(holdAct);
+      return out;
+    }
+
+    function step(dt) {
+      if (!camera) return false;
+      for (const a of heldActs()) act(a, dt);
+      if (spin && !drag && !held.size && !holdAct) goal.theta += 0.35 * dt;
+      // a flick keeps turning and slows down
+      if (!drag && (Math.abs(vel.t) > 1e-4 || Math.abs(vel.p) > 1e-4)) {
+        goal.theta += vel.t * dt; goal.phi = clampPhi(goal.phi + vel.p * dt);
+        const k = Math.exp(-dt * 4.5); vel.t *= k; vel.p *= k;
+      }
+      const e = reduced ? 1 : ease(dt, 11);
+      let moved = false;
+      for (const key of ['theta', 'phi', 'dist', 'tx', 'ty', 'tz']) {
+        const d = goal[key] - cur[key];
+        const tol = key === 'dist' ? 1e-3 : key[0] === 't' && key.length === 2 ? 1e-4 : 1e-5;
+        if (Math.abs(d) > tol) { cur[key] += d * e; moved = true; } else if (d) { cur[key] = goal[key]; moved = true; }
+      }
+      if (moved) place();
+      return moved;
+    }
+    let last = 0;
+    function loop(t) {
       if (dead) return;
       raf = requestAnimationFrame(loop);
+      const dt = last ? Math.min(0.05, (t - last) / 1000) : 1 / 60; last = t;
+      step(dt);
       if (!dirty) return;
       dirty = false;
       renderer.render(scene, camera);
@@ -324,26 +518,72 @@ window.PinodeBoard3D = (function () {
     const mo = new MutationObserver(() => { if (repaintT) return; repaintT = setTimeout(() => { repaintT = null; repaint(); }, 150); });
     mo.observe(off, { attributes: true, subtree: true, attributeFilter: ['class', 'opacity', 'fill', 'style'] });
 
-    // pointer: drag spins, wheel zooms, double-click resets, hover shows the part
+    // pointer: drag spins, right/shift drag pans, wheel zooms at the pointer,
+    // two fingers pinch and pan, double-click fits, hover shows the part
     let drag = null, hoverPart = null;
-    const ray = () => new THREE.Raycaster();
-    function partAt(e) {
+    const touches = new Map();
+    function ndc(e) {
       const r = renderer.domElement.getBoundingClientRect();
-      const p = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-      const rc = ray(); rc.setFromCamera(p, camera);
+      return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    }
+    function partAt(e) {
+      const rc = new THREE.Raycaster(); rc.setFromCamera(ndc(e), camera);
       const hit = rc.intersectObjects(pickables, false)[0];
       return hit ? hit.object.userData.part : null;
     }
+    // the point on the board (or the plane through the target) under the pointer
+    function pointAt(e) {
+      const rc = new THREE.Raycaster(); rc.setFromCamera(ndc(e), camera);
+      const hit = rc.intersectObjects(scene.children, true)[0];
+      if (hit) return hit.point;
+      const pl = new THREE.Plane(new THREE.Vector3(0, 0, 1), -cur.tz), p = new THREE.Vector3();
+      return rc.ray.intersectPlane(pl, p) ? p : null;
+    }
+    function leaveHover(e) { if (hoverPart && opt.onPart) opt.onPart(hoverPart, 'leave', e); hoverPart = null; }
     function bindPointer(cv) {
-      cv.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, t: view.theta, p: view.phi, moved: false }; cv.setPointerCapture(e.pointerId); });
+      cv.tabIndex = 0;
+      cv.setAttribute('aria-label', '3D board view. Arrow keys spin and tilt, plus and minus zoom, question mark lists every control.');
+      cv.addEventListener('contextmenu', (e) => e.preventDefault());
+      cv.addEventListener('pointerdown', (e) => {
+        cv.focus({ preventScroll: true });
+        cv.setPointerCapture(e.pointerId);
+        if (e.pointerType === 'touch') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size >= 2) { drag = { pinch: true, moved: true }; leaveHover(e); return; }
+        const panMode = e.button === 2 || e.button === 1 || e.shiftKey || e.ctrlKey || e.metaKey;
+        drag = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, lt: performance.now(), pan: panMode, moved: false };
+        vel.t = vel.p = 0;
+      });
       cv.addEventListener('pointermove', (e) => {
-        if (drag) {
-          const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-          if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-          view.theta = drag.t - dx * 0.008;
-          view.phi = Math.max(0.001, Math.min(Math.PI - 0.001, drag.p - dy * 0.008));
-          place();
-          if (hoverPart && opt.onPart) { opt.onPart(hoverPart, 'leave', e); hoverPart = null; }
+        if (touches.has(e.pointerId)) {
+          const prev = touches.get(e.pointerId);
+          if (touches.size >= 2) {
+            const pts = [...touches.values()];
+            const mid0 = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }, d0 = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+            touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            const q = [...touches.values()];
+            const mid1 = { x: (q[0].x + q[1].x) / 2, y: (q[0].y + q[1].y) / 2 }, d1 = Math.hypot(q[0].x - q[1].x, q[0].y - q[1].y);
+            if (d0 > 0 && d1 > 0) zoom(d0 / d1);
+            pan(mid1.x - mid0.x, mid1.y - mid0.y);
+            if (reduced) snap();
+            return;
+          }
+          touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          void prev;
+        }
+        if (drag && !drag.pinch) {
+          const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
+          if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3) drag.moved = true;
+          const now = performance.now(), ms = Math.max(1, now - drag.lt);
+          drag.lx = e.clientX; drag.ly = e.clientY; drag.lt = now;
+          if (drag.pan) pan(dx, dy);
+          else {
+            orbit(-dx * 0.008, -dy * 0.008);
+            // remember the speed for the flick (radians per second)
+            vel.t = (-dx * 0.008 * 1000) / ms; vel.p = (-dy * 0.008 * 1000) / ms;
+          }
+          // follow the hand closely while dragging
+          Object.assign(cur, goal); place();
+          leaveHover(e);
           return;
         }
         const c = partAt(e);
@@ -353,15 +593,79 @@ window.PinodeBoard3D = (function () {
           if (c) opt.onPart(c, 'enter', e);
         } else if (c && opt.onPart) opt.onPart(c, 'move', e);
       });
-      cv.addEventListener('pointerup', (e) => {
-        const d = drag; drag = null;
-        if (d && !d.moved && opt.onPart) { const c = partAt(e); if (c) opt.onPart(c, 'click', e); }
+      const up = (e) => {
+        touches.delete(e.pointerId);
+        const d = drag;
+        if (touches.size) return;          // one finger still down after a pinch
+        drag = null;
+        if (!d) return;
+        // a flick only counts if the hand was still moving when it let go
+        if (d.pan || d.pinch || performance.now() - (d.lt || 0) > 80) vel.t = vel.p = 0;
+        if (!d.moved && !d.pinch && e.type === 'pointerup' && opt.onPart && e.button === 0) { const c = partAt(e); if (c) opt.onPart(c, 'click', e); }
+      };
+      cv.addEventListener('pointerup', up);
+      cv.addEventListener('pointercancel', up);
+      cv.addEventListener('pointerleave', (e) => { if (!drag) leaveHover(e); });
+      cv.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const px = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+        const dx = e.deltaX * px, dy = e.deltaY * px;
+        if (e.shiftKey && !e.ctrlKey) { pan(-(dx || dy) * 0.6, 0); return; }
+        // pinch on a touchpad arrives as ctrl + wheel
+        if (e.ctrlKey) { zoom(Math.exp(dy * 0.01), pointAt(e)); return; }
+        // a sideways two-finger swipe spins; up and down zoom at the pointer
+        if (Math.abs(dx) > Math.abs(dy)) { orbit(-dx * 0.005, 0); return; }
+        zoom(Math.exp(dy * 0.0015), pointAt(e));
+      }, { passive: false });
+      cv.addEventListener('dblclick', (e) => { e.preventDefault(); fit(true); });
+      cv.addEventListener('keydown', (e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        if (KEY_ACT[k]) {
+          e.preventDefault(); e.stopPropagation();
+          if (!e.repeat) { held.add(k + '|' + (e.shiftKey ? 1 : 0)); const a = e.shiftKey && PAN_OF[KEY_ACT[k]] ? PAN_OF[KEY_ACT[k]] : KEY_ACT[k]; act(a, 0.12); }
+          return;
+        }
+        let handled = true;
+        if (KEY_VIEW[k] != null && !e.shiftKey) preset(KEY_VIEW[k]);
+        else if (k === 'f') fit(true);
+        else if (k === ' ') setSpin(!spin);
+        else if (k === '?' || (k === '/' && e.shiftKey)) toggleHelp();
+        else if (k === 'Escape' && !help.hidden) toggleHelp(false);
+        else handled = false;
+        if (handled) { e.preventDefault(); e.stopPropagation(); }
       });
-      cv.addEventListener('pointerleave', (e) => { if (hoverPart && opt.onPart) opt.onPart(hoverPart, 'leave', e); hoverPart = null; });
-      cv.addEventListener('wheel', (e) => { e.preventDefault(); view.zoomed = true; view.dist = Math.max(20, Math.min(600, view.dist * Math.exp(e.deltaY * 0.0012))); place(); }, { passive: false });
-      cv.addEventListener('dblclick', () => { view.zoomed = false; preset('tilt'); size(); });
+      cv.addEventListener('keyup', (e) => {
+        const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        held.delete(k + '|0'); held.delete(k + '|1');
+      });
+      cv.addEventListener('blur', () => held.clear());
     }
-    bar.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b && camera) preset(b.dataset.v); });
+    bar.addEventListener('click', (e) => { const b = e.target.closest('button[data-v]'); if (b && camera) preset(b.dataset.v); });
+    // pad: tap for a nudge, hold to keep moving
+    const stopHold = () => { holdAct = null; clearTimeout(holdT); };
+    pad.addEventListener('pointerdown', (e) => {
+      const b = e.target.closest('button[data-a]');
+      if (!b || !camera || e.button !== 0) return;
+      const a = b.dataset.a;
+      if (a === 'fit') return fit(true);
+      if (a === 'spin') return setSpin(!spin);
+      if (a === 'help') return toggleHelp();
+      e.preventDefault();
+      act(a, 0.14);
+      clearTimeout(holdT);
+      holdT = setTimeout(() => { holdAct = a; }, 280);
+    });
+    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) pad.addEventListener(ev, stopHold);
+    // the pad buttons still work from the keyboard (Tab to one, Enter)
+    pad.addEventListener('keydown', (e) => {
+      const b = e.target.closest('button[data-a]');
+      if (!b || !camera || (e.key !== 'Enter' && e.key !== ' ')) return;
+      e.preventDefault();
+      const a = b.dataset.a;
+      if (a === 'fit') fit(true); else if (a === 'spin') setSpin(!spin); else if (a === 'help') toggleHelp(); else act(a, 0.14);
+    });
+    help.addEventListener('click', (e) => { if (e.target.closest('[data-a="help"]')) toggleHelp(false); });
 
     let ro = null;
     (async () => {
@@ -381,7 +685,10 @@ window.PinodeBoard3D = (function () {
         build();
         bindPointer(renderer.domElement);
         size();
-        preset(opt.view || 'tilt');
+        const p0 = PRESETS[opt.view] || PRESETS.home;
+        goal.theta = p0.theta; goal.phi = clampPhi(p0.phi);
+        fit(true); snap();
+        setSpin(spin);
         note.remove();
         ro = new ResizeObserver(() => size());
         ro.observe(wrap);
@@ -411,9 +718,14 @@ window.PinodeBoard3D = (function () {
       hasCharge: front.hasCharge,
       destroy,
       preset: (v) => camera && preset(v),
+      fit: () => camera && fit(true),
+      setSpin: (on) => setSpin(on),
+      spinning: () => spin,
+      view: () => Object.assign({}, goal),
+      settle: () => camera && snap(),
       ready: () => !!renderer,
       canvases: () => [cvF, cvB]
     };
   }
-  return { create, supported, partHeight, loadThree, svgToCanvas };
+  return { create, supported, partHeight, loadThree, svgToCanvas, PRESETS, _cam: { nearestAngle, upFor, ease, clampPhi } };
 })();

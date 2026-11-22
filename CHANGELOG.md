@@ -4,6 +4,20 @@ All notable changes to ElectriCAD. Downloads for each version are on the
 [Releases page](https://github.com/KinodeLLC/electricad/releases). The full
 design notes for each version are in [docs/ROADMAP.md](docs/ROADMAP.md).
 
+## 0.9.8 — 3D movement controls
+
+- Smooth, eased camera in the 3D view with flick inertia. Respects the
+  system's reduced-motion setting.
+- Mouse: drag to spin and tilt, right-drag or Shift-drag to move, wheel to
+  zoom at the pointer, double-click to fit. Touchpad: pinch to zoom, swipe
+  sideways to spin. Touch: one finger spins, two fingers pinch and move.
+- Keyboard (click the view first): arrows or WASD spin and tilt, Shift +
+  arrows move, + / − zoom, 1–6 and 0 jump to Front, Back, Left, Right, Top,
+  Bottom, Iso, H Home, F Fit, Space auto-spin, ? lists every control.
+- Large labelled buttons: Home, Iso, Top, Bottom, Front, Back, Left, Right
+  views; spin, tilt and zoom (hold to keep going), Fit, Auto-spin and Keys.
+- Fit frames the whole board exactly from any direction.
+
 ## 0.9.7 — Real-looking boards, clones and 3D
 
 - 3D view: spin any board that has design-file geometry (UNO family, Mega,

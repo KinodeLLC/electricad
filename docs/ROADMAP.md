@@ -3,6 +3,23 @@
 Target: Visual Studio-grade depth, every feature justified by microcontroller
 work. Phases ordered so each ships something usable.
 
+## 0.9.8 — 3D movement controls
+
+- Camera in renderer/board3d.js: goal + current state eased each frame
+  (frame-rate independent, snaps under prefers-reduced-motion), flick inertia,
+  camera up from the orbit tangent so it never flips at the poles.
+- Mouse (left orbit, right/middle/Shift pan, wheel zoom at the pointer,
+  double-click fit), touchpad (pinch = ctrl+wheel zoom, sideways swipe spins),
+  touch (one finger orbit, two-finger pinch + pan), keyboard on the focused
+  canvas (held keys move at a steady rate).
+- Presets home/iso/top/bottom/front/back/left/right reached the short way
+  round; Front looks at the -y edge as CAD tools do, Bottom turns the board
+  over sideways like the 2D back face. Fit frames the bounding box exactly
+  from the current direction; presets refit until the user zooms or pans.
+- On-screen pad (tap nudges, hold repeats), Auto-spin (remembered per
+  computer), ? panel listing every control.
+- Next: 0.9.9 simulator (animated current, damage), 0.10.0 AI copilot.
+
 ## 0.9.7 — Real-looking boards, clones, 3D
 
 - Silkscreen from the design files (tools/extract-board-silk.js →
@@ -21,7 +38,7 @@ work. Phases ordered so each ships something usable.
   from the outline with holes, faces painted from hidden front/back 2D views
   (live), parts as bodies at package-standard heights, headers, USB/jack/
   button. Not done: STEP models (only the R4s publish one), photo textures.
-- Next: 0.9.8 simulator (animated current, damage), 0.9.9 AI copilot.
+- Next (renumbered in 0.9.8): 0.9.9 simulator, 0.10.0 AI copilot.
 
 ## 0.9.6 — Every component, hover box and full card
 

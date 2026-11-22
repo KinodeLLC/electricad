@@ -5318,6 +5318,7 @@ void loop()  { ELECTRICAD_TICK(); /* your code */ }</pre>
     docMarkdown(box.querySelector('.md-preview'), md);
   }
   const WHATS_NEW = [
+    ['🎮 3D movement controls (0.9.8)', 'The 3D view now moves smoothly: drag to spin (flick it and it keeps turning), right-drag or Shift-drag to move, wheel or pinch to zoom at the pointer. Big buttons spin, tilt, zoom and fit, Auto turns the board slowly on its own, and Home, Iso, Top, Bottom, Front, Back, Left and Right jump to a view. Click the view and use the arrow keys, + and −, 1 to 6 and 0; press ? for every control.'],
     ['🧊 Spin the board in 3D (0.9.7)', 'Press 3D on the Live Board to turn the board any way you like: drag to spin, wheel to zoom, Top, Tilt and Bottom to jump. Every part sits where the design files put it, at its package\'s real height, with the silkscreen, markings and live pins painted on. Hover a part for its box. Boards with no design files stay flat (front and back).'],
     ['🖼 Real boards (0.9.7)', 'The drawn boards now carry the real silkscreen (pin labels, PWM / COMMUNICATION / POWER, MADE IN ITALY, the Feather art), their real colour and black header plastic. The UNO R3 has a real photo, cropped to the board.'],
     ['🧩 Clone boards (0.9.7)', 'Pick a clone in the revision menu: the blue CH340G UNO, the black Mega 2560 + WiFi (HW-888) with front and back photos, and the blue CH340G and USB-C Megas. Where no photo or design file exists, only what every clone shares is drawn, never guessed parts.'],

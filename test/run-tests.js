@@ -1383,6 +1383,20 @@ t('3D view: only boards with design-file geometry, heights from package standard
   assert(hb.filter((b) => !b.male).length >= 4 && hb.some((b) => b.male), 'uno headers');
   assert(hb.some((b) => b.y1 < 5) && hb.some((b) => b.y2 > 48), 'both rows');
 });
+t('3D camera: presets, short-way turns and an up vector that never flips', () => {
+  const D = global.window.PinodeBoard3D, P = D.PRESETS, C = D._cam;
+  for (const v of ['home', 'iso', 'top', 'bottom', 'front', 'back', 'left', 'right']) assert(P[v] && Number.isFinite(P[v].theta) && Number.isFinite(P[v].phi), v);
+  // front looks at the -y edge, bottom turns the board over sideways (like the 2D back face)
+  assert(Math.abs(Math.sin(P.front.theta) + 1) < 1e-9 && Math.abs(P.front.phi - Math.PI / 2) < 1e-9);
+  assert(Math.abs(P.bottom.phi - Math.PI) < 1e-9 && Math.abs(C.upFor(P.bottom.theta, C.clampPhi(P.bottom.phi))[1] - 1) < 1e-3);
+  assert(Math.abs(C.upFor(P.top.theta, C.clampPhi(P.top.phi))[1] - 1) < 1e-3, 'top view has +y up');
+  // never more than half a turn to reach a preset
+  for (const cur of [-20, -3.5, 0, 2.9, 7.1, 40]) for (const v of Object.values(P)) assert(Math.abs(C.nearestAngle(cur, v.theta) - cur) <= Math.PI + 1e-9);
+  // up stays a unit vector all the way over the top
+  for (let p = 0; p <= Math.PI; p += 0.05) { const u = C.upFor(1.2, p); assert(Math.abs(Math.hypot(...u) - 1) < 1e-9); }
+  assert(C.clampPhi(-1) > 0 && C.clampPhi(9) < Math.PI);
+  assert(C.ease(1 / 60, 11) > 0 && C.ease(1 / 60, 11) < 1 && C.ease(10, 11) > 0.999);
+});
 t('boards: every component comes from the makers\' design files, marked only where the print is known', () => {
   require('../renderer/boardparts.js');
   const P = global.window.PINODE_BOARD_PARTS, SRC = global.window.PINODE_BOARD_PARTS_SOURCE;

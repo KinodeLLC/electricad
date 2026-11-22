@@ -62,8 +62,16 @@ and mounting hole is where it is on the real board. Other boards show their pins
   slider sets how see-through it is). Pictures are official Arduino images or
   openly licensed photos, straightened so every pad lands on its pin. The
   credit and licence are under the picture.
-- **3D**: spin the board. Drag to turn it any way, the wheel zooms, Top /
-  Tilt / Bottom jump to a view and a double-click resets. Parts sit where the
+- **3D**: spin the board. Drag to turn it any way (flick it and it keeps
+  turning), right-drag or Shift-drag to move it, the wheel or a touchpad pinch
+  zooms at the pointer, and a double-click fits the board. The buttons at the
+  bottom right spin, tilt and zoom (hold to keep going), Fit frames the board
+  and Auto spins it slowly. Home, Iso, Top, Bottom, Front, Back, Left and
+  Right at the top jump to a view. Click the view to use the keyboard: arrows
+  or WASD spin and tilt, Shift + arrows move, + / − zoom, 1 Front, 2 Back,
+  3 Left, 4 Right, 5 Top, 6 Bottom, 0 Iso, H Home, F Fit, Space Auto, ? lists
+  everything. On a touch screen one finger spins and two fingers pinch and
+  move. Parts sit where the
   makers' design files put them, at their package's standard height (an 0603
   resistor 0.5 mm, a female header 8.5 mm); the silkscreen, markings and live
   pins are painted on and update as the board runs. Hover a part for its box.
