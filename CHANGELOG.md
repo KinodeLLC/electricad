@@ -13,6 +13,11 @@ design notes for each version are in [docs/ROADMAP.md](docs/ROADMAP.md).
   "MADE IN ITALY", part outlines, and the bitmap logos on the Adafruit
   Feathers (tools/extract-board-silk.js → renderer/boardsilk.js and
   renderer/img/silk). Only what the files contain is drawn.
+- Boards are drawn in their real solder-mask colour (Arduino teal, sampled
+  from Arduino's renders; black for the Adafruit Feathers) with a soft sheen.
+- Fitted headers are drawn as black plastic with depth: female sockets on the
+  shield headers, male 2×3 headers on ICSP (including the USB chip's ICSP on
+  the Uno, Mega and Leonardo).
 
 ## 0.9.6 — Every component, hover box and full card
 

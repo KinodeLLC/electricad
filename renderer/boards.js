@@ -31,6 +31,9 @@ window.PINODE_BOARDS = (() => {
 
   // ---- to-scale geometry ----------------------------------------------------
   const U = 4;   // drawing units per millimetre
+  // mask: solder-mask colour. Arduino teal is sampled from Arduino's renders
+  // (#017381); the Adafruit Feathers listed here are made with black mask.
+  // headers: the board ships with its shield headers fitted.
   function mmBoard(def, g) {
     // margin for parts that overhang the edge (USB, jack), or for labels
     // outside the board on the narrow Nanos
@@ -92,7 +95,7 @@ window.PINODE_BOARDS = (() => {
 
   // ---- Arduino Uno (R3, R4 Minima, R4 WiFi) ----------------------------------
   const uno = mmBoard({
-    id: 'uno', name: 'Arduino Uno', w: 0, h: 0,
+    id: 'uno', name: 'Arduino Uno', w: 0, h: 0, mask: '#00727f', headers: true,
     fqbnMatch: /arduino:avr:uno|arduino:renesas_uno:/,   // UNO R4 keeps the R3 numbering
     digitalCount: 23,   // 0–19 on the headers; 21/22 are the R4 Minima's TX/RX LEDs
     pins: [
@@ -132,7 +135,7 @@ window.PINODE_BOARDS = (() => {
   // Upright, USB at the top. Seen from the top, D12…TX1 run down the right
   // edge and D13…VIN down the left, D12/D13 nearest the USB socket.
   const nano = mmBoard({
-    id: 'nano', name: 'Arduino Nano', w: 0, h: 0,
+    id: 'nano', name: 'Arduino Nano', w: 0, h: 0, mask: '#00727f',
     fqbnMatch: /arduino:avr:nano/,
     digitalCount: 20,
     pins: [
@@ -181,7 +184,7 @@ window.PINODE_BOARDS = (() => {
   // PWM on 3 5 6 9 10 11 13, and the TX/RX LEDs show USB traffic. The ICSP
   // pins are the 32u4's only SPI pins: MISO 14, SCK 15, MOSI 16.
   const leonardo = mmBoard({
-    id: 'leonardo', name: 'Arduino Leonardo', w: 0, h: 0,
+    id: 'leonardo', name: 'Arduino Leonardo', w: 0, h: 0, mask: '#00727f', headers: true,
     fqbnMatch: /arduino:avr:leonardo(?::|$)/,
     digitalCount: 31,
     pins: [
@@ -223,7 +226,7 @@ window.PINODE_BOARDS = (() => {
   // 3 5 6 9 10 only. Labels are plain numbers like its silkscreen. Pads from
   // the top-copper Gerber: same pitch and order as the Nano, rows 15.24 apart.
   const nanoevery = mmBoard({
-    id: 'nanoevery', name: 'Arduino Nano Every', w: 0, h: 0,
+    id: 'nanoevery', name: 'Arduino Nano Every', w: 0, h: 0, mask: '#00727f',
     fqbnMatch: /arduino:megaavr:nona4809/,
     digitalCount: 22,
     pins: [
@@ -351,7 +354,7 @@ window.PINODE_BOARDS = (() => {
     68.58, 71.12, 73.66, 76.2, 78.74, 81.28];
   const MEGA_SPI = { 50: 'MISO', 51: 'MOSI', 52: 'SCK', 53: 'SS' };
   const mega = mmBoard({
-    id: 'mega', name: 'Arduino Mega 2560', w: 0, h: 0,
+    id: 'mega', name: 'Arduino Mega 2560', w: 0, h: 0, mask: '#00727f', headers: true,
     fqbnMatch: /arduino:avr:mega/,
     digitalCount: 64,
     pins: [
@@ -506,7 +509,7 @@ window.PINODE_BOARDS = (() => {
   // Feather ESP32 (HUZZAH32) — GPIO numbers straight off the silkscreen.
   // The third bottom pad has no net on the board (NC).
   const featheresp32 = mmBoard({
-    id: 'featheresp32', name: 'Feather ESP32 (HUZZAH32)', w: 0, h: 0,
+    id: 'featheresp32', name: 'Feather ESP32 (HUZZAH32)', w: 0, h: 0, mask: '#17181a',
     fqbnMatch: /esp32:esp32:featheresp32(?::|$)/,   // HUZZAH32 only: V2/S2/S3 Feathers differ
     digitalCount: 40,
     pins: featherPins(
@@ -529,7 +532,7 @@ window.PINODE_BOARDS = (() => {
   // Feather RP2040 — GP numbers per the Adafruit pinout. The third bottom
   // pad is a second 3V3 on this board (not AREF/NC as on the others).
   const featherrp2040 = mmBoard({
-    id: 'featherrp2040', name: 'Feather RP2040', w: 0, h: 0,
+    id: 'featherrp2040', name: 'Feather RP2040', w: 0, h: 0, mask: '#17181a',
     fqbnMatch: /rp2040:rp2040:adafruit_feather(?::|$)/,   // plain Feather RP2040 only
     digitalCount: 30,
     pins: featherPins(
@@ -555,7 +558,7 @@ window.PINODE_BOARDS = (() => {
   // MOSI 23, SCK 24. The 16th bottom pad is GND on both the Basic and the
   // Express .brd. The Express adds a NeoPixel on D8 (its own revision).
   const featherm0 = mmBoard({
-    id: 'featherm0', name: 'Feather M0', w: 0, h: 0,
+    id: 'featherm0', name: 'Feather M0', w: 0, h: 0, mask: '#17181a',
     fqbnMatch: /adafruit:samd:adafruit_feather_m0/,
     digitalCount: 26,
     pins: featherPins(
@@ -576,7 +579,7 @@ window.PINODE_BOARDS = (() => {
 
   // Feather M4 Express — adafruit_feather_m4 variant numbering.
   const featherm4 = mmBoard({
-    id: 'featherm4', name: 'Feather M4 Express', w: 0, h: 0,
+    id: 'featherm4', name: 'Feather M4 Express', w: 0, h: 0, mask: '#17181a',
     fqbnMatch: /adafruit:samd:adafruit_feather_m4/,
     digitalCount: 26,
     pins: featherPins(

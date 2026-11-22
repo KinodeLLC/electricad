@@ -73,6 +73,18 @@ window.PinodeBoard = (function () {
       } else {
         el('rect', { x: 1, y: 1, width: def.w - 2, height: def.h - 2, rx: 8, class: 'pcb' + (def.id === 'pi' ? ' pi' : '') + (T.back ? ' back' : '') }, draw);
       }
+      // solder mask in the board's real colour, with a soft sheen
+      const mask = opt.mask || def.mask;
+      const pcbEl = draw.lastChild;
+      if (mask) pcbEl.style.fill = T.back ? shade(mask, 0.8) : mask;
+      if (def.outline && def.unitsPerMm) {
+        const gid = 'gl' + Math.random().toString(36).slice(2, 8);
+        const defs = el('defs', {}, draw), lg = el('linearGradient', { id: gid, x1: 0, y1: 0, x2: 0.35, y2: 1 }, defs);
+        el('stop', { offset: 0, 'stop-color': '#fff', 'stop-opacity': 0.09 }, lg);
+        el('stop', { offset: 0.45, 'stop-color': '#fff', 'stop-opacity': 0 }, lg);
+        el('stop', { offset: 1, 'stop-color': '#000', 'stop-opacity': 0.14 }, lg);
+        el('path', { d: pcbEl.getAttribute('d'), fill: 'url(#' + gid + ')', 'pointer-events': 'none' }, draw);
+      }
       for (const h of def.holes || []) el('circle', { cx: h.x, cy: h.y, r: h.r, class: 'hole' }, draw);
       if (opt.silk && def.geo && def.unitsPerMm) { drawSilk(draw, def, opt.silk[T.back ? 'bottom' : 'top']); if (!opt.pinLabels) svg.classList.add('has-silk'); }
       for (const d of def.decor || []) {
@@ -92,6 +104,7 @@ window.PinodeBoard = (function () {
         }
       }
       if (opt.parts && def.toUnits) drawParts(draw, def, opt.parts, T);
+      if (def.headers && def.toUnits && !T.back) drawHeaders(draw, def, opt.parts);
     }
     // LEDs light up in every mode; on the back they are hidden by the board.
     // Each one is a dark lens with a glow layer whose opacity is the light.
@@ -254,6 +267,57 @@ window.PinodeBoard = (function () {
       const t = el('text', { x: 0, y: +dy.toFixed(2), class: 'silk-text', 'text-anchor': anchor, 'font-size': fs.toFixed(2),
         transform: `translate(${px.toFixed(2)} ${py.toFixed(2)}) rotate(${phi.toFixed(1)})${mir ? ' scale(-1 1)' : ''}` }, layer);
       t.textContent = str;
+    }
+  }
+
+  function shade(hex, k) {
+    const n = parseInt(hex.slice(1), 16);
+    const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.round(v * k).toString(16).padStart(2, '0'));
+    return '#' + c.join('');
+  }
+
+  // ---- fitted headers ------------------------------------------------------------
+  // the black plastic of the headers the board ships with: pins 2.54 mm apart
+  // form one header (the gap between D7 and D8 splits them, as on the board).
+  // Shield headers are female sockets; ICSP is a male 2×3, also where the
+  // design has a 2×3 footprint with no pins of ours on it (the USB chip's ICSP).
+  function drawHeaders(parent, def, parts) {
+    const g = el('g', { class: 'bv-headers' }, parent), U = def.unitsPerMm;
+    const pins = (def.pins || []).filter((p) => p.at && (p.side || 'top') === 'top');
+    const up = pins.map((_, i) => i), find = (i) => (up[i] === i ? i : (up[i] = find(up[i])));
+    for (let i = 0; i < pins.length; i++) for (let j = i + 1; j < pins.length; j++) {
+      const dx = Math.abs(pins[i].at[0] - pins[j].at[0]), dy = Math.abs(pins[i].at[1] - pins[j].at[1]);
+      if ((dx < 0.3 && Math.abs(dy - 2.54) < 0.3) || (dy < 0.3 && Math.abs(dx - 2.54) < 0.3)) up[find(i)] = find(j);
+    }
+    const groups = {};
+    pins.forEach((p, i) => (groups[find(i)] = groups[find(i)] || []).push(p));
+    const boxes = [];
+    for (const list of Object.values(groups)) {
+      if (list.length < 2) continue;
+      const xs = list.map((p) => p.at[0]), ys = list.map((p) => p.at[1]);
+      const male = list.some((p) => /^(MISO|MOSI|SCK)$/.test(p.label));
+      boxes.push({ x1: Math.min(...xs) - 1.27, y1: Math.min(...ys) - 1.27, x2: Math.max(...xs) + 1.27, y2: Math.max(...ys) + 1.27, male });
+    }
+    for (const c of parts || []) {
+      if (c.kind !== 'conn' || !c.box || (c.side || 'top') !== 'top' || !(/^2X03$/.test(c.pkg || '') || /^PH2-06/.test(c.mpn || ''))) continue;
+      const cx = (c.box[0] + c.box[2]) / 2, cy = (c.box[1] + c.box[3]) / 2;
+      if (boxes.some((b) => cx > b.x1 && cx < b.x2 && cy > b.y1 && cy < b.y2)) continue;
+      const wide = c.box[2] - c.box[0] >= c.box[3] - c.box[1];
+      const hw = wide ? 3.81 : 2.54, hh = wide ? 2.54 : 3.81;
+      const pinsAt = [];
+      for (let i = -1; i <= 1; i++) for (const j of [-0.5, 0.5]) pinsAt.push(wide ? [cx + i * 2.54, cy + j * 2.54] : [cx + j * 2.54, cy + i * 2.54]);
+      boxes.push({ x1: cx - hw, y1: cy - hh, x2: cx + hw, y2: cy + hh, male: true, pinsAt });
+    }
+    for (const b of boxes) {
+      const [ax, ay] = def.toUnits(b.x1, b.y1), [bx, by] = def.toUnits(b.x2, b.y2);
+      const x = Math.min(ax, bx), y = Math.min(ay, by), w = Math.abs(bx - ax), h = Math.abs(by - ay);
+      el('rect', { x: +x.toFixed(2), y: +y.toFixed(2), width: +w.toFixed(2), height: +h.toFixed(2), rx: 0.3 * U, class: b.male ? 'hdr-m' : 'hdr-f' }, g);
+      el('rect', { x: +x.toFixed(2), y: +y.toFixed(2), width: +w.toFixed(2), height: +(0.35 * U).toFixed(2), class: 'hdr-edge' }, g);
+      // square 0.64 mm posts on a header with no pins of ours
+      for (const [px, py] of b.pinsAt || []) {
+        const [ux, uy] = def.toUnits(px, py), r = 0.32 * U;
+        el('rect', { x: +(ux - r).toFixed(2), y: +(uy - r).toFixed(2), width: +(2 * r).toFixed(2), height: +(2 * r).toFixed(2), class: 'hdr-post' }, g);
+      }
     }
   }
 

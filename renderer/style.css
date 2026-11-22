@@ -870,3 +870,8 @@ body.pcb-full #bottom, body.pcb-full #splitBottom { display: none !important; }
 .silk-text { fill: #e9eef0; font-family: "Arial Narrow", "Roboto Condensed", "DejaVu Sans Condensed", sans-serif; font-weight: 700; white-space: pre; pointer-events: none; }
 .bv-back .silk-line { stroke: #dfe6e8; }
 .has-silk .bv-labels text { display: none; }
+
+.hdr-f { fill: #121213; stroke: #000; stroke-width: 0.6; filter: drop-shadow(1.5px 2.5px 1.5px rgba(0, 0, 0, 0.55)); }
+.hdr-m { fill: #19191b; stroke: #000; stroke-width: 0.5; filter: drop-shadow(1px 1.5px 1px rgba(0, 0, 0, 0.5)); }
+.hdr-edge { fill: rgba(255, 255, 255, 0.09); pointer-events: none; }
+.hdr-post { fill: #d9b45a; stroke: #7a5f22; stroke-width: 0.3; }
