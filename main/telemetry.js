@@ -11,6 +11,10 @@
 //   u  pull-up mask  (input with internal pull-up) hex   (v0.6+, optional)
 //   a  analog reads A0..A5 (or more), decimal csv
 //   p  pwm duty per active pwm pin, pin:val csv (0-255)
+//   n  NeoPixels registered with ELECTRICAD_NEOPIXEL: <data pin>:RRGGBB,...
+//      as shown (brightness applied)                             (v0.9.5+)
+//   x  UNO R4 WiFi LED matrix framebuffer, 12 bytes as 24 hex digits,
+//      bit i = pixel i, row by row from the top-left              (v0.9.5+)
 //
 // I2C scans arrive as their own line:  ~PNI|n=2|a=3C,76   (7-bit hex addrs)
 //
@@ -53,6 +57,15 @@ function parseLine(line) {
       else if (key === 'd') snap.inMask = hex(val);
       else if (key === 'u') { snap.pullMask = hex(val); snap.hasPull = true; }
       else if (key === 'a') snap.analog = val ? val.split(',').map((n) => (n.trim() === '' ? null : Number(n) || 0)) : [];
+      else if (key === 'n') {
+        const [pin, list] = val.split(':');
+        if (pin !== '' && list !== undefined && /^\d+$/.test(pin)) {
+          snap.neopixel = { pin: Number(pin), colors: list.split(',').filter((h) => /^[0-9a-fA-F]{1,6}$/.test(h)).map((h) => parseInt(h, 16)).slice(0, 64) };
+        }
+      }
+      else if (key === 'x') {
+        if (/^[0-9a-fA-F]{24}$/.test(val)) snap.matrix = val.match(/../g).map((h) => parseInt(h, 16));
+      }
       else if (key === 'p') {
         for (const pair of val.split(',')) {
           const [pin, duty] = pair.split(':');
@@ -91,6 +104,8 @@ function serialize(snap) {
     analog: snap.analog,
     pwm: snap.pwm
   };
+  if (snap.neopixel) s.neopixel = snap.neopixel;
+  if (snap.matrix) s.matrix = snap.matrix;
   if (snap.hasPull) s.pullMask = snap.pullMask.toString(16);
   return s;
 }

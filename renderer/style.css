@@ -811,3 +811,13 @@ body.pcb-full #bottom, body.pcb-full #splitBottom { display: none !important; }
 .img-report a { color: var(--faint); text-decoration: none; }
 .img-report a:hover { color: var(--accent); }
 .report-modal textarea { font-family: inherit; resize: vertical; }
+
+/* onboard LEDs (0.9.5): a dark lens, a coloured glow on top whose opacity is the light */
+.led .led-lens { fill: #262626; stroke: #00000080; stroke-width: .6; }
+.led .led-glow { transition: opacity .05s linear; }
+.led.unknown .led-lens { stroke: #9aa4b2; stroke-dasharray: 1.2 1.2; }
+.led.rgb .rgb-body { fill: #e9e6dc; stroke: #8a877e; stroke-width: .5; }
+.led-matrix .led-lens { fill: #3a1c1c; stroke: none; }
+.led-matrix .led-glow { filter: drop-shadow(0 0 1.5px #ff2a2a); }
+.bv-image .led .led-lens, .bv-image .led-matrix .led-lens { fill-opacity: .35; }
+.badge.sim { background: #3b2a66; color: #d9ccff; }

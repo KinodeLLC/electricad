@@ -1099,6 +1099,9 @@ window.PinodeWiring = (function () {
       if (root && root.offsetParent && simOn) runSim();
     },
     isActive() { return !!(root && root.offsetParent); },
+    // the pins as the running simulation drives them (the ones set by hand on
+    // the canvas), for the live board when no real board is streaming
+    simPinStates() { return simOn && model ? currentPinStates() : null; },
     placeCatalogItem,
     placeLibPart,
     swapLibPart,

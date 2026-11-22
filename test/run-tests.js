@@ -1264,13 +1264,81 @@ t('boards: revisions follow the FQBN and swap names and parts, not pin order', (
   assert.strictEqual(B.uno.pins[31].label, 'NC'); assert(m.def.decor.some((d) => d.label === 'RA4M1'));
   // every picture named exists, has a licence and a source
   const fs = require('fs');
-  for (const def of Object.values(B)) for (const r of def.revisions || []) for (const im of r.images) {
+  for (const def of Object.values(B)) for (const r of def.revisions || []) for (const im of r.images || []) {
     assert(fs.existsSync(path.join(__dirname, '..', 'renderer', im.src)), im.src);
     assert(/^CC BY-SA [34]\.0$/.test(im.license) && /^https:\/\//.test(im.source) && im.credit, im.id);
   }
 });
+t('boards: onboard LEDs sit where the CAD puts them and act like the real ones', () => {
+  delete require.cache[require.resolve('../renderer/board.js')];
+  require('../renderer/board.js');
+  const B = global.window.PINODE_BOARDS, R = global.window.PINODE_BOARD_REVISIONS;
+  const L = global.window.PinodeBoard.ledLevel;
+  // behaviour: outputs drive, LOW lights an active-low LED, PWM dims, inputs stay dark
+  assert.strictEqual(L({ mode: 'out', level: 1 }, false), 1); assert.strictEqual(L({ mode: 'out', level: 0 }, false), 0);
+  assert.strictEqual(L({ mode: 'out', level: 0 }, true), 1); assert.strictEqual(L({ mode: 'out', level: 1 }, true), 0);
+  assert(Math.abs(L({ mode: 'pwm', pwm: 64 }, false) - 64 / 255) < 1e-9);
+  assert(Math.abs(L({ mode: 'pwm', pwm: 64 }, true) - (1 - 64 / 255)) < 1e-9);
+  assert.strictEqual(L({ mode: 'in', level: 0 }, false), 0);
+  assert.strictEqual(L({ mode: 'in', level: 1 }, true), null);   // not driven: a role LED keeps its serial blinks
+  assert(L({ mode: 'in', pull: 'up', level: 1 }, false) > 0 && L({ mode: 'in', pull: 'up', level: 1 }, false) < 0.1);
+  // placement: every LED of a to-scale board is on the board, every pin LED is on a real pin
+  const all = [];
+  for (const def of Object.values(B)) {
+    const defs = [def.decor, ...(def.revisions || []).map((r) => R.withRevision(def, r.id).def.decor)];
+    for (const decor of defs) for (const d of decor || []) {
+      if (!/^(led|rgb|matrix)$/.test(d.kind)) continue;
+      all.push([def.id, d]);
+      const pts = d.points || [[d.x, d.y]];
+      for (const [x, y] of pts) assert(x > 0 && y > 0 && x < def.w && y < def.h, def.id + ' ' + d.label);
+      if (def.geo) for (const [x, y] of pts) {
+        const M = def.geo.margin || 10, U = def.unitsPerMm;
+        const mx = def.geo.portrait ? (y - M) / U : (x - M) / U, my = def.geo.portrait ? (x - M) / U : def.geo.h - (y - M) / U;
+        assert(mx >= 0 && my >= 0 && mx <= def.geo.w && my <= def.geo.h, def.id + ' ' + d.label + ' inside the board');
+      }
+      if (d.tele != null && d.kind === 'led' && !d.role) assert(d.tele < def.digitalCount, def.id + ' ' + d.label);
+    }
+  }
+  const has = (id, f) => all.some(([b, d]) => b === id && f(d));
+  // the makers' files: Uno family yellow L/TX/RX + green ON; Nano TX green, RX red
+  assert(has('uno', (d) => d.label === 'L' && d.tele === 13 && d.color === '#ffd94a'));
+  assert(has('nano', (d) => d.label === 'RX' && d.color === '#ff5c5c') && has('nano', (d) => d.label === 'TX' && d.color === '#3fd07a'));
+  assert(has('leonardo', (d) => d.role === 'tx' && d.tele === 30 && d.invert) && has('leonardo', (d) => d.role === 'rx' && d.tele === 17 && d.invert));
+  // NodeMCU DevKit 1.0: two active-low blue LEDs (GPIO2, GPIO16) and no power LED
+  assert(has('nodemcu', (d) => d.tele === 2 && d.invert) && has('nodemcu', (d) => d.tele === 16 && d.invert) && !has('nodemcu', (d) => d.role === 'power'));
+  // Feathers: red D13, orange CHG, NeoPixel only where the board has one
+  for (const id of ['featheresp32', 'featherrp2040', 'featherm0', 'featherm4']) {
+    assert(B[id].geo && B[id].geo.w === 50.8, id + ' to scale');
+    assert(B[id].decor.some((d) => d.tele === 13 && d.color === '#ff3b30') && B[id].decor.some((d) => d.role === 'charge'), id);
+  }
+  assert(B.featherrp2040.decor.some((d) => d.kind === 'rgb' && d.tele === 16) && B.featherm4.decor.some((d) => d.kind === 'rgb' && d.tele === 8));
+  assert(!B.featherm0.decor.some((d) => d.kind === 'rgb') && R.withRevision(B.featherm0, 'express').def.decor.some((d) => d.kind === 'rgb' && d.tele === 8));
+  assert(!B.featheresp32.decor.some((d) => d.kind === 'rgb'));
+  assert.strictEqual(B.featherrp2040.pins[2].label, '3V'); assert.strictEqual(B.featherm0.pins[15].power, 'gnd');
+  // UNO R4 WiFi matrix: 96 pixels, pixel 0 top-left, 11 top-right, 95 bottom-right, 2.1 mm pitch
+  const mx = R.withRevision(B.uno, 'r4wifi').def.decor.find((d) => d.kind === 'matrix');
+  assert.strictEqual(mx.points.length, 96);
+  const [p0, p11, p12, p95] = [mx.points[0], mx.points[11], mx.points[12], mx.points[95]];
+  assert(p11[0] > p0[0] && Math.abs(p11[1] - p0[1]) < 1e-6 && p12[1] > p0[1] && Math.abs(p12[0] - p0[0]) < 1e-6 && p95[0] === p11[0]);
+  assert(Math.abs(p11[0] - p0[0] - 11 * 2.1 * B.uno.unitsPerMm) < 1e-6);
+  // R4 Minima TX/RX are RA4M1 pins 21/22, LOW = lit, and the Uno view tracks them
+  const mi = R.withRevision(B.uno, 'r4minima').def.decor;
+  assert(mi.some((d) => d.role === 'tx' && d.tele === 21 && d.invert) && mi.some((d) => d.role === 'rx' && d.tele === 22 && d.invert));
+  assert(B.uno.digitalCount > 22);
+  // Pico W: the LED is on the wireless chip, shown as not readable
+  assert(R.withRevision(B.pico, 'picow').def.decor.some((d) => d.kind === 'led' && d.unreadable && d.tele == null));
+});
+t('telemetry: NeoPixel colours and the R4 matrix frame come through', () => {
+  const T = require('../main/telemetry.js');
+  const s = T.serialize(T.parseLine('~PN1|t=9|m=0|o=0|d=0|p=|n=16:FF8000,000010|x=0102030405060708090A0B0C'));
+  assert.deepStrictEqual(s.neopixel, { pin: 16, colors: [0xff8000, 0x10] });
+  assert.deepStrictEqual(s.matrix, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  const old = T.serialize(T.parseLine('~PN1|t=9|m=0|o=0|d=0|p='));
+  assert(!old.neopixel && !old.matrix);
+  assert(!T.serialize(T.parseLine('~PN1|t=9|m=0|x=12')).matrix, 'a torn frame is dropped');
+});
 t('boards: the back view mirrors and rotation keeps the board in view', () => {
-  global.window.PinodeBoard = undefined;
+  delete require.cache[require.resolve('../renderer/board.js')];
   require('../renderer/board.js');
   const V = global.window.PinodeBoard.viewTransform;
   const def = global.window.PINODE_BOARDS.uno;

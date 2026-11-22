@@ -23,6 +23,15 @@
 //            duty from the slice compare registers (Pico/Pico 2, pins 0..29)
 //   SAMD     PORT DIR / OUT / IN through the variant's g_APinDescription,
 //            pull-ups from PINCFG.PULLEN (Feather/Metro M0 and M4, Zero, MKR)
+//   Renesas  UNO R4 Minima / WiFi: each pin's PmnPFS register through the
+//            variant's g_pin_cfg (PDR direction, PODR latch, PIDR level, PCR
+//            pull-up). On the R4 WiFi the 12×8 LED matrix frame is sent too,
+//            when Arduino_LED_Matrix.h is included before this header.
+//
+// Onboard NeoPixels: ELECTRICAD_NEOPIXEL(strip) after strip.begin() sends
+// the colour of the first pixels (any Adafruit_NeoPixel-style object), so
+// the board view lights the real RGB LED. ElectriCAD's "Add live telemetry"
+// command adds the line for you.
 //
 // Analog reads never reconfigure a pin the sketch is using digitally: on
 // cores where analogRead() would steal the pin (RP2040, SAMD) a pin that is
@@ -30,6 +39,8 @@
 //
 // Wire format (one line per tick, masks hex, LSB = pin 0, up to 64 pins):
 //   ~PN1|t=<millis>|m=<modeMask>|o=<outLatch>|d=<levels>|u=<pullups>|a=<csv>|p=<pin:duty,...>
+//        [|n=<pin>:RRGGBB,...]  NeoPixels, as shown (brightness applied)
+//        [|x=<24 hex>]          UNO R4 WiFi matrix, bit i = pixel i
 //   ~PNI|n=<count>|a=<hex addr,...>          (one line per ELECTRICAD_I2C_SCAN)
 #ifndef ELECTRICAD_TELEMETRY_H
 #define ELECTRICAD_TELEMETRY_H
@@ -299,6 +310,41 @@ inline bool analogSafe(uint8_t i) {
 }
 inline void printPwm(Print& out) { (void)out; }
 
+#elif defined(ARDUINO_ARCH_RENESAS_UNO) || defined(ARDUINO_ARCH_RENESAS)
+// UNO R4 (RA4M1). PmnPFS bits: 0 PODR, 1 PIDR, 2 PDR, 4 PCR, 15 ASEL, 16 PMR.
+#ifndef ELECTRICAD_ANALOG_COUNT
+#ifdef PINODE_ANALOG_COUNT
+#define ELECTRICAD_ANALOG_COUNT PINODE_ANALOG_COUNT
+#else
+#define ELECTRICAD_ANALOG_COUNT 6   // A0..A5
+#endif
+#endif
+#define ELECTRICAD_HAS_PULL 1
+inline uint32_t pfsOf(int pin) {
+  const bsp_io_port_pin_t pp = g_pin_cfg[pin].pin;
+  return R_PFS->PORT[pp >> 8].PIN[pp & 0xFF].PmnPFS;
+}
+inline void gather(Masks& m) {
+  const int n = (int)PINS_COUNT < 64 ? (int)PINS_COUNT : 64;
+  for (int pin = 0; pin < n; pin++) {
+    const uint32_t pfs = pfsOf(pin);
+    if (!(pfs & (1UL << 16)) && (pfs & (1UL << 2))) {     // GPIO output
+      setBit(m.modeLo, m.modeHi, pin);
+      if (pfs & 1UL) setBit(m.outLo, m.outHi, pin);
+    } else if (pfs & (1UL << 4)) setBit(m.pullLo, m.pullHi, pin);
+    if (pfs & (1UL << 1)) setBit(m.inLo, m.inHi, pin);
+  }
+}
+// analogRead() switches a pin to analog for good, which would break a
+// digitalRead() on it, so only pins the sketch already reads as analog
+// (ASEL set) are sampled.
+inline bool analogSafe(uint8_t i) {
+  const int pin = A0 + i;
+  if (pin >= (int)PINS_COUNT) return false;
+  return (pfsOf(pin) & (1UL << 15)) != 0;
+}
+inline void printPwm(Print& out) { (void)out; }
+
 #else
 #ifndef ELECTRICAD_ANALOG_COUNT
 #ifdef PINODE_ANALOG_COUNT
@@ -311,6 +357,60 @@ inline void printPwm(Print& out) { (void)out; }
 inline void gather(Masks& m) { (void)m; }
 inline bool analogSafe(uint8_t i) { (void)i; return true; }
 inline void printPwm(Print& out) { (void)out; }
+#endif
+
+// ---- onboard RGB (NeoPixel) -------------------------------------------------
+// Templated so this header needs no NeoPixel library of its own: anything
+// with getPixelColor(i), numPixels(), getBrightness() and getPin() works.
+struct PixelSource {
+  void* obj;
+  uint32_t (*color)(void*, uint16_t);
+  uint16_t (*count)(void*);
+  uint8_t (*bright)(void*);
+  int16_t (*pin)(void*);
+};
+inline PixelSource& pixels() { static PixelSource p = { 0, 0, 0, 0, 0 }; return p; }
+template <typename S>
+inline void watchPixels(S& strip) {
+  PixelSource& p = pixels();
+  p.obj = &strip;
+  p.color = [](void* o, uint16_t i) -> uint32_t { return ((S*)o)->getPixelColor(i); };
+  p.count = [](void* o) -> uint16_t { return ((S*)o)->numPixels(); };
+  p.bright = [](void* o) -> uint8_t { return ((S*)o)->getBrightness(); };
+  p.pin = [](void* o) -> int16_t { return ((S*)o)->getPin(); };
+}
+inline void printHex2(Print& out, uint8_t v) {
+  const char* H = "0123456789ABCDEF";
+  out.print(H[v >> 4]); out.print(H[v & 15]);
+}
+inline void printPixels(Print& out) {
+  PixelSource& p = pixels();
+  if (!p.obj) return;
+  const int16_t pin = p.pin(p.obj);
+  if (pin < 0) return;
+  uint16_t n = p.count(p.obj);
+  if (n > 8) n = 8;
+  const uint16_t b = (uint16_t)p.bright(p.obj) + 1;   // 1..256
+  out.print(F("|n=")); out.print(pin); out.print(':');
+  for (uint16_t i = 0; i < n; i++) {
+    const uint32_t c = p.color(p.obj, i);
+    if (i) out.print(',');
+    printHex2(out, (uint8_t)((((c >> 16) & 255) * b) >> 8));
+    printHex2(out, (uint8_t)((((c >> 8) & 255) * b) >> 8));
+    printHex2(out, (uint8_t)(((c & 255) * b) >> 8));
+  }
+}
+// ---- UNO R4 WiFi LED matrix -------------------------------------------------
+// Arduino_LED_Matrix.h keeps the live frame in a file-level `framebuffer`
+// (bit i = pixel i), visible here when it was included first.
+#if (defined(ARDUINO_ARCH_RENESAS_UNO) || defined(ARDUINO_ARCH_RENESAS)) && defined(NUM_LEDS) && defined(renderBitmap)
+#define ELECTRICAD_HAS_MATRIX 1
+inline void printMatrix(Print& out) {
+  out.print(F("|x="));
+  for (uint8_t i = 0; i < NUM_LEDS / 8; i++) printHex2(out, framebuffer[i]);
+}
+#else
+inline void printMatrix(Print& out) { (void)out; }
 #endif
 
 inline void tick(Stream& out) {
@@ -338,6 +438,8 @@ inline void tick(Stream& out) {
 #endif
   out.print(F("|p="));
   printPwm(out);
+  printPixels(out);
+  printMatrix(out);
   out.println();
 }
 
@@ -383,6 +485,7 @@ inline uint8_t i2cScan(Bus& bus, Print& out) {
 #define ELECTRICAD_TICK()  electricad::tick(Serial)
 #define ELECTRICAD_DELAY(ms) electricad::delayTicking(Serial, (unsigned long)(ms))
 #define ELECTRICAD_I2C_SCAN(bus) electricad::i2cScan((bus), Serial)
+#define ELECTRICAD_NEOPIXEL(strip) electricad::watchPixels(strip)
 
 /* legacy names — older sketches keep compiling unchanged */
 #define PINODE_BEGIN() ELECTRICAD_BEGIN()

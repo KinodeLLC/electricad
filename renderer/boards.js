@@ -59,6 +59,7 @@ window.PINODE_BOARDS = (() => {
         const [ax, ay] = P(d.at[0], d.at[1]), [bx, by] = P(d.at[2], d.at[3]);
         d.x = Math.min(ax, bx); d.y = Math.min(ay, by); d.w = Math.abs(bx - ax); d.h = Math.abs(by - ay);
       } else if (d.at) [d.x, d.y] = P(d.at[0], d.at[1]);
+      if (d.cells) d.points = d.cells.map(([x, y]) => P(x, y));
     }
     return def;
   }
@@ -93,7 +94,7 @@ window.PINODE_BOARDS = (() => {
   const uno = mmBoard({
     id: 'uno', name: 'Arduino Uno', w: 0, h: 0,
     fqbnMatch: /arduino:avr:uno|arduino:renesas_uno:/,   // UNO R4 keeps the R3 numbering
-    digitalCount: 20,
+    digitalCount: 23,   // 0–19 on the headers; 21/22 are the R4 Minima's TX/RX LEDs
     pins: [
       // top header, right to left like the silkscreen: SCL SDA AREF GND 13..8
       ...run(18.796, 50.8, 1, 0, [
@@ -210,8 +211,10 @@ window.PINODE_BOARDS = (() => {
       { kind: 'chip', at: [41.99, 11.51, 51.99, 21.51], label: 'ATMEGA32U4' },
       { kind: 'led', at: [4.445, 20.32], tele: 13, label: 'L', color: '#ffd94a' },
       { kind: 'led', at: [4.445, 16.51], role: 'power', label: 'ON', color: '#3fd07a' },
-      { kind: 'led', at: [4.445, 24.13], role: 'tx', label: 'TX', color: '#ffd94a' },
-      { kind: 'led', at: [4.445, 27.94], role: 'rx', label: 'RX', color: '#ffd94a' }
+      // TX/RX hang off the 32u4 itself (TXLED = PD5 = D30, RXLED = PB0 = D17,
+      // to +5V so LOW = lit); the core pulses them on USB traffic
+      { kind: 'led', at: [4.445, 24.13], role: 'tx', tele: 30, invert: true, label: 'TX', color: '#ffd94a' },
+      { kind: 'led', at: [4.445, 27.94], role: 'rx', tele: 17, invert: true, label: 'RX', color: '#ffd94a' }
     ]
   }, { w: 68.58, h: 53.34, outline: UNO_OUTLINE, holes: UNO_HOLES, source: 'Arduino Leonardo CAD (Leonardo_Rev3d.brd, A000057)' });
 
@@ -424,7 +427,7 @@ window.PINODE_BOARDS = (() => {
       { kind: 'usb', x: 49, y: 2, w: 32, h: 18 },
       { kind: 'chip', x: 45, y: 90, w: 40, h: 40, label: 'RP2040' },
       // the Pico's only LED is GP25 — there is no power LED, and that's accurate
-      { kind: 'led', x: 92, y: 40, tele: 25, label: '25', color: '#3fd07a' }
+      { kind: 'led', x: 36, y: 40, tele: 25, label: '25', color: '#3fd07a' }
     ]
   };
 
@@ -458,42 +461,52 @@ window.PINODE_BOARDS = (() => {
     ],
     decor: [
       { kind: 'usb', x: 54, y: 2, w: 32, h: 20 },
-      { kind: 'chip', x: 40, y: 60, w: 60, h: 50, label: 'ESP8266' },
-      // the real NodeMCU blue LED sits on GPIO2 and is ACTIVE-LOW:
-      // digitalWrite(2, LOW) turns it ON. Modeled faithfully.
-      { kind: 'led', x: 100, y: 130, tele: 2, label: '2', color: '#4aa3ff', invert: true },
-      { kind: 'led', x: 40, y: 130, role: 'power', label: 'PWR', color: '#ff5c5c' }
+      { kind: 'chip', x: 34, y: 150, w: 72, h: 96, label: 'ESP-12E' },
+      { kind: 'chip', x: 52, y: 62, w: 36, h: 30, label: 'CP2102', small: true },
+      // NodeMCU DevKit 1.0 (nodemcu-devkit-v1.0 schematic): a blue LED on the
+      // ESP-12E module (GPIO2) and a blue board LED (LED1) on GPIO16/D0, both
+      // wired to 3V3 so LOW turns them on. The board has no power LED (some
+      // clones add one).
+      { kind: 'led', x: 92, y: 160, tele: 2, label: 'G2', color: '#4aa3ff', invert: true },
+      { kind: 'led', x: 46, y: 44, tele: 16, label: 'D0', color: '#4aa3ff', invert: true }
     ]
   };
 
-  // ---- Adafruit Feather (full-size, real form factor) -----------------------
-  // The Feather spec: a 16-pin header the full length of one edge and a
-  // 12-pin header starting from the USB end of the other. Same physical
-  // positions across the family; the chip variant decides the GPIO numbers.
-  // All three variants keep their red LED on "13" — faithfully.
-  function featherPins(bottom16, top12) {
+  // ---- Adafruit Feathers (to scale, from Adafruit's Eagle files) -------------
+  // 50.8 × 22.86 mm, USB on the left. A 16-pin header runs the bottom edge
+  // from RESET (x 6.35) and a 12-pin header the top edge from BAT (x 16.51),
+  // 2.54 mm pitch. Pads, LEDs and parts come from each board's .brd on
+  // github.com/adafruit (CC BY-SA). Every Feather has a red LED on D13 and an
+  // orange CHG LED that the battery charger drives; the Express and RP2040
+  // boards add a NeoPixel.
+  const FEATHER_OUTLINE = (() => {
+    const pts = [], R = 2.54;
+    const arc = (cx, cy, a0) => { for (let k = 0; k <= 4; k++) { const a = (a0 + k * 22.5) * Math.PI / 180; pts.push([+(cx + R * Math.cos(a)).toFixed(3), +(cy + R * Math.sin(a)).toFixed(3)]); } };
+    arc(48.26, 2.54, 270); arc(48.26, 20.32, 0); arc(2.54, 20.32, 90); arc(2.54, 2.54, 180);
+    return pts;
+  })();
+  const FEATHER_HOLES = [[2.54, 2.54, 2.5], [2.54, 20.32, 2.5], [48.26, 2.54, 2.54], [48.26, 20.32, 2.54]];
+  function featherPins(bottom16, top12, topY) {
     return [
       ...bottom16.map(([label, tele, power, note, analogIndex], i) => ({
-        label, tele, power, note, analogIndex,
-        x: 20 + i * 12, y: 84, side: 'bottom'
-      })),
+        label, tele, power, note, analogIndex, at: [+(6.35 + i * 2.54).toFixed(2), 1.27], side: 'bottom' })),
       ...top12.map(([label, tele, power, note], i) => ({
-        label, tele, power, note,
-        x: 20 + i * 12, y: 16, side: 'top'
-      }))
+        label, tele, power, note, at: [+(16.51 + i * 2.54).toFixed(2), topY || 21.59], side: 'top' }))
     ];
   }
-  const featherDecor = (chipLabel, extraLeds) => [
-    { kind: 'usb', x: 2, y: 38, w: 24, h: 22 },
-    { kind: 'jack', x: 2, y: 62, w: 16, h: 14 },           // JST battery
-    { kind: 'chip', x: 88, y: 38, w: 64, h: 26, label: chipLabel },
-    { kind: 'led', x: 62, y: 44, tele: 13, label: '13', color: '#ff5c5c' },
-    ...(extraLeds || [])
-  ];
+  const featherGeo = (file, holes) => ({ w: 50.8, h: 22.86, margin: 22, labelsOut: true, outline: FEATHER_OUTLINE,
+    holes: holes || FEATHER_HOLES, source: 'Adafruit ' + file + ' (Eagle, github.com/adafruit)' });
+  const microUsb = { kind: 'usb', at: [-1.0, 7.7, 4.6, 15.2], label: 'USB' };
+  const featherJst = { kind: 'jack', at: [6.8, 15.2, 14.8, 22.86], label: 'BAT' };
+  const fLed = (at, tele) => ({ kind: 'led', at, tele, label: '13', color: '#ff3b30' });
+  const fChg = (at) => ({ kind: 'led', at, role: 'charge', label: 'CHG', color: '#ff9f1a' });
+  const fNeo = (at, tele) => ({ kind: 'rgb', at, tele, label: 'NEO' });
+  const kmr2 = (cx, cy, vertical) => ({ kind: 'button', at: vertical ? [cx - 1.4, cy - 2.1, cx + 1.4, cy + 2.1] : [cx - 2.1, cy - 1.4, cx + 2.1, cy + 1.4], label: 'RST' });
 
   // Feather ESP32 (HUZZAH32) — GPIO numbers straight off the silkscreen.
-  const featheresp32 = {
-    id: 'featheresp32', name: 'Feather ESP32 (HUZZAH32)', w: 214, h: 100,
+  // The third bottom pad has no net on the board (NC).
+  const featheresp32 = mmBoard({
+    id: 'featheresp32', name: 'Feather ESP32 (HUZZAH32)', w: 0, h: 0,
     fqbnMatch: /esp32:esp32:featheresp32(?::|$)/,   // HUZZAH32 only: V2/S2/S3 Feathers differ
     digitalCount: 40,
     pins: featherPins(
@@ -505,37 +518,44 @@ window.PINODE_BOARDS = (() => {
       [ ['BAT', null, 'vin'], ['EN', null], ['USB', null, 'v5'],
         ['13', 13, null, 'red LED'], ['12', 12], ['27', 27], ['33', 33],
         ['15', 15], ['32', 32], ['14', 14], ['SCL/22', 22], ['SDA/23', 23] ]),
-    decor: featherDecor('ESP32')
-  };
+    decor: [
+      microUsb, featherJst, kmr2(9.144, 6.223, true),
+      { kind: 'chip', at: [25.6, 2.43, 51.1, 20.43], label: 'ESP32-WROOM-32' },
+      { kind: 'chip', at: [14.9, 4.5, 18.9, 8.5], label: 'CP2104', small: true },
+      fLed([2.858, 17.336], 13), fChg([2.413, 5.588])
+    ]
+  }, featherGeo('HUZZAH32 ESP32 Feather.brd', [[2.54, 2.54, 2.5], [2.54, 20.32, 2.5], [48.26, 1.842, 2.2], [48.26, 20.955, 2.2]]));
 
-  // Feather RP2040 — GP numbers per the Adafruit pinout.
-  const featherrp2040 = {
-    id: 'featherrp2040', name: 'Feather RP2040', w: 214, h: 100,
+  // Feather RP2040 — GP numbers per the Adafruit pinout. The third bottom
+  // pad is a second 3V3 on this board (not AREF/NC as on the others).
+  const featherrp2040 = mmBoard({
+    id: 'featherrp2040', name: 'Feather RP2040', w: 0, h: 0,
     fqbnMatch: /rp2040:rp2040:adafruit_feather(?::|$)/,   // plain Feather RP2040 only
     digitalCount: 30,
     pins: featherPins(
-      [ ['RST', null], ['3V', null, 'v33'], ['NC', null], ['GND', null, 'gnd'],
+      [ ['RST', null], ['3V', null, 'v33'], ['3V', null, 'v33'], ['GND', null, 'gnd'],
         ['A0/GP26', 26, null, null, 0], ['A1/GP27', 27, null, null, 1],
         ['A2/GP28', 28, null, null, 2], ['A3/GP29', 29, null, null, 3],
         ['D24', 24], ['D25', 25],
         ['SCK/GP14', 14], ['MO/GP15', 15], ['MI/GP8', 8], ['RX/GP1', 1], ['TX/GP0', 0], ['D4', 4] ],
       [ ['BAT', null, 'vin'], ['EN', null], ['USB', null, 'v5'],
         ['D13', 13, null, 'red LED'], ['D12', 12], ['D11', 11], ['D10', 10],
-        ['D9', 9], ['D6', 6], ['D5', 5], ['SCL/GP3', 3], ['SDA/GP2', 2] ]),
-    decor: featherDecor('RP2040', [
-      { kind: 'led', x: 62, y: 58, tele: 16, label: 'NEO', color: '#ffffff' }
-    ])
-  };
+        ['D9', 9], ['D6', 6], ['D5', 5], ['SCL/GP3', 3], ['SDA/GP2', 2] ], 21.65),
+    decor: [
+      { kind: 'usb', at: [-1.2, 7.0, 6.3, 15.9], label: 'USB-C' }, featherJst, kmr2(11.811, 6.414),
+      { kind: 'button', at: [47.9, 13.0, 50.4, 17.6], label: 'BOOT' },
+      { kind: 'chip', at: [31.0, 8.0, 37.9, 14.9], label: 'RP2040' },
+      { kind: 'chip', at: [40.8, 12.2, 43.2, 15.9], label: 'FLASH', small: true },
+      fLed([1.82, 17.423], 13), fChg([1.778, 5.398]), fNeo([17.755, 5.982], 16)
+    ]
+  }, featherGeo('Feather RP2040.brd'));
 
-  // Feather M0/M4 class (SAMD21/51, nRF52840 share the layout) — Arduino
-  // pin numbers per the M4 Express variant.
-  // Feather M0 (Basic / Express / Adalogger) — Arduino numbers per the
+  // Feather M0 (Basic / Express) — Arduino numbers per the
   // adafruit_feather_m0 variant: A0–A5 = 14–19, SDA 20, SCL 21, MISO 22,
-  // MOSI 23, SCK 24. The 16th bottom pin is not a GPIO on every M0 Feather,
-  // so it gets no telemetry here; the M0 Express NeoPixel (pin 8) is not drawn
-  // because the basic M0 has no NeoPixel.
-  const featherm0 = {
-    id: 'featherm0', name: 'Feather M0', w: 214, h: 100,
+  // MOSI 23, SCK 24. The 16th bottom pad is GND on both the Basic and the
+  // Express .brd. The Express adds a NeoPixel on D8 (its own revision).
+  const featherm0 = mmBoard({
+    id: 'featherm0', name: 'Feather M0', w: 0, h: 0,
     fqbnMatch: /adafruit:samd:adafruit_feather_m0/,
     digitalCount: 26,
     pins: featherPins(
@@ -543,16 +563,20 @@ window.PINODE_BOARDS = (() => {
         ['A0', 14, null, null, 0], ['A1', 15, null, null, 1],
         ['A2', 16, null, null, 2], ['A3', 17, null, null, 3],
         ['A4', 18, null, null, 4], ['A5', 19, null, null, 5],
-        ['SCK', 24], ['MO', 23], ['MI', 22], ['RX', 0], ['TX', 1], ['—', null, null, 'check your board\'s pinout'] ],
+        ['SCK', 24], ['MO', 23], ['MI', 22], ['RX', 0], ['TX', 1], ['GND', null, 'gnd'] ],
       [ ['BAT', null, 'vin'], ['EN', null], ['USB', null, 'v5'],
         ['D13', 13, null, 'red LED'], ['D12', 12], ['D11', 11], ['D10', 10],
         ['D9', 9, null, 'A7 · battery divider'], ['D6', 6], ['D5', 5], ['SCL', 21], ['SDA', 20] ]),
-    decor: featherDecor('SAMD21')
-  };
+    decor: [
+      microUsb, featherJst, kmr2(9.398, 6.477),
+      { kind: 'chip', at: [20.7, 6.2, 27.6, 13.1], label: 'SAMD21' },
+      fLed([2.645, 17.359], 13), fChg([2.413, 5.588])
+    ]
+  }, featherGeo('Feather M0 Basic rev C.brd / Feather M0 Express.brd'));
 
   // Feather M4 Express — adafruit_feather_m4 variant numbering.
-  const featherm4 = {
-    id: 'featherm4', name: 'Feather M4 Express', w: 214, h: 100,
+  const featherm4 = mmBoard({
+    id: 'featherm4', name: 'Feather M4 Express', w: 0, h: 0,
     fqbnMatch: /adafruit:samd:adafruit_feather_m4/,
     digitalCount: 26,
     pins: featherPins(
@@ -564,10 +588,13 @@ window.PINODE_BOARDS = (() => {
       [ ['BAT', null, 'vin'], ['EN', null], ['USB', null, 'v5'],
         ['D13', 13, null, 'red LED'], ['D12', 12], ['D11', 11], ['D10', 10],
         ['D9', 9], ['D6', 6], ['D5', 5], ['SCL', 22], ['SDA', 21] ]),
-    decor: featherDecor('SAMD51', [
-      { kind: 'led', x: 62, y: 58, tele: 8, label: 'NEO', color: '#ffffff' }
-    ])
-  };
+    decor: [
+      microUsb, featherJst, kmr2(9.398, 6.541),
+      { kind: 'chip', at: [25.7, 6.6, 34.6, 15.5], label: 'SAMD51' },
+      { kind: 'chip', at: [35.8, 7.2, 37.3, 9.6], label: 'FLASH', small: true },
+      fLed([2.645, 17.359], 13), fChg([2.413, 5.588]), fNeo([16.485, 6.109], 8)
+    ]
+  }, featherGeo('Feather M4 Express.brd'));
 
   // ---- revisions and real images --------------------------------------------
   // Each revision can rename pins, move parts (LEDs, USB, chip) and has its own
@@ -583,11 +610,20 @@ window.PINODE_BOARDS = (() => {
     source: 'https://commons.wikimedia.org/wiki/File:' + encodeURIComponent(file.replace(/ /g, '_')), note: 'Photo' });
   const img = (id, kind, face, meta) => ({ id, kind, face, src: 'img/boards/' + id + '.webp', ...meta });
   const mmDecor = (def, list) => mmBoard({ pins: [], decor: list }, def.geo).decor;
-  const R4_LEDS = (l, tx, rx, on) => [
+  // UNO R4 LEDs from the Altium placement (PCB.PcbDoc, minus the 25.4 mm
+  // origin offset). Minima: TX/RX are RA4M1 pins 21/22 (P012/P013, LED to
+  // +5V, so LOW = lit). WiFi: TX sits on the RA4M1 UART to the ESP32-S3 and
+  // RX on the ESP32's reply, so they blink with the serial traffic itself.
+  const R4_LEDS = (l, tx, rx, on, txTele, rxTele) => [
     { kind: 'led', at: l, tele: 13, label: 'L', color: '#ffd94a' },
     { kind: 'led', at: on, role: 'power', label: 'ON', color: '#3fd07a' },
-    { kind: 'led', at: tx, role: 'tx', label: 'TX', color: '#ffd94a' },
-    { kind: 'led', at: rx, role: 'rx', label: 'RX', color: '#ffd94a' }];
+    { kind: 'led', at: tx, role: 'tx', label: 'TX', color: '#ffd94a', ...(txTele != null ? { tele: txTele, invert: true } : {}) },
+    { kind: 'led', at: rx, role: 'rx', label: 'RX', color: '#ffd94a', ...(rxTele != null ? { tele: rxTele, invert: true } : {}) }];
+  // the R4 WiFi's 12×8 red matrix (designators 1–96 = frame pixels 0–95,
+  // row by row from the top-left; checked against Arduino_LED_Matrix's
+  // charlieplex table and the board's nets). 2.1 mm pitch.
+  const R4_MATRIX = { kind: 'matrix', cols: 12, rows: 8, color: '#ff2a2a', label: 'LED MATRIX',
+    cells: Array.from({ length: 96 }, (_, i) => [+(34.412 + (i % 12) * 2.1).toFixed(3), +(26.53 - Math.floor(i / 12) * 2.1).toFixed(3)]) };
   uno.revisions = [
     { id: 'r3', name: 'UNO R3', fqbn: /arduino:avr:uno/, note: 'ATmega328P, through-hole (A000066). The SMD R3 has the same headers.',
       images: [img('uno-r3-render', 'render', 'front', DOCS('uno/boards/uno-rev3/image.svg'))] },
@@ -597,7 +633,7 @@ window.PINODE_BOARDS = (() => {
         { kind: 'usb', at: [-1.5, 33.3, 6.7, 42.5], label: 'USB-C' }, { kind: 'jack', at: [-3.3, 4.6, 12.9, 12.9] },
         { kind: 'button', at: [3.75, 44.1, 10, 50], label: 'RESET' },
         { kind: 'chip', at: [39.2, 27.1, 47.5, 35.4], label: 'RA4M1' },
-        ...R4_LEDS([28.5, 41.8], [28.2, 36.3], [28.2, 34.2], [58.1, 36.3])],
+        ...R4_LEDS([27.94, 42.164], [27.94, 36.576], [27.94, 34.29], [58.42, 36.576], 21, 22)],
       images: [img('uno-r4minima-photo', 'photo', 'front', COMMONS('Arduino Uno R4 Minima.webp', 'Arduino', 'CC BY-SA 3.0')),
         img('uno-r4minima-render', 'render', 'front', DOCS('uno/boards/uno-r4-minima/image.svg'))] },
     { id: 'r4wifi', name: 'UNO R4 WiFi', fqbn: /arduino:renesas_uno:unor4wifi/, note: 'RA4M1 + ESP32-S3, USB-C, LED matrix (ABX00087). The ESP32 header, Qwiic and OFF/VRTC pins are not drawn.',
@@ -606,7 +642,7 @@ window.PINODE_BOARDS = (() => {
         { kind: 'button', at: [3.75, 44.1, 10, 50], label: 'RESET' },
         { kind: 'chip', at: [47.5, 30.8, 57.5, 40.4], label: 'RA4M1' },
         { kind: 'chip', at: [7.5, 14.6, 21.25, 28.8], label: 'ESP32-S3' },
-        ...R4_LEDS([26.8, 42.3], [26.8, 36.4], [26.8, 34.3], [63.9, 39.4])],
+        ...R4_LEDS([26.416, 42.164], [26.416, 36.576], [26.416, 34.29], [64.897, 39.553]), R4_MATRIX],
       images: [img('uno-r4wifi-photo', 'photo', 'front', COMMONS('Arduino Uno R4 WiFi.webp', 'Arduino', 'CC BY-SA 3.0')),
         img('uno-r4wifi-render', 'render', 'front', DOCS('uno/boards/uno-r4-wifi/image.svg'))] }
   ];
@@ -622,6 +658,24 @@ window.PINODE_BOARDS = (() => {
   nanoevery.revisions = [{ id: 'every', name: 'Nano Every', fqbn: /arduino:megaavr:nona4809/, note: 'ATmega4809 (ABX00028)',
     images: [img('nanoevery-photo', 'photo', 'front', COMMONS('Arduino Nano Every.png', 'Enirstad', 'CC BY-SA 4.0')),
       img('nanoevery-render', 'render', 'front', DOCS('nano/boards/nano-every/image.svg'))] }];
+
+  featherm0.revisions = [
+    { id: 'basic', name: 'Feather M0 Basic', fqbn: /adafruit:samd:adafruit_feather_m0(?::|$)/, note: 'ATSAMD21G18, no NeoPixel (Feather M0 Basic rev C)' },
+    { id: 'express', name: 'Feather M0 Express', fqbn: /adafruit:samd:adafruit_feather_m0_express/, note: 'Adds 2 MB SPI flash and a NeoPixel on D8',
+      decor: [
+        microUsb, featherJst, kmr2(9.398, 6.477),
+        { kind: 'chip', at: [20.7, 6.2, 27.6, 13.1], label: 'SAMD21' },
+        { kind: 'chip', at: [32.0, 5.1, 35.8, 11.7], label: 'FLASH', small: true },
+        fLed([2.645, 17.359], 13), fChg([2.413, 5.588]), fNeo([33.782, 16.764], 8)] }
+  ];
+  featherm0.revisions[1].decor = mmDecor(featherm0, featherm0.revisions[1].decor.map((d) => ({ ...d })));
+  // Pico W / Pico 2 W: the LED hangs off the CYW43 wireless chip (WL_GPIO0),
+  // which no RP2040 register shows, so it is drawn but marked as not readable.
+  pico.revisions = [
+    { id: 'pico', name: 'Pico / Pico 2', fqbn: /rp2040:rp2040:rpipico2?(?::|$)/, note: 'Green LED on GP25 (D2, QSME-C194). No power LED.' },
+    { id: 'picow', name: 'Pico W / Pico 2 W', fqbn: /rp2040:rp2040:rpipico2?w(?::|$)/, note: 'The LED is on the wireless chip (WL_GPIO0), so the live view cannot see it.',
+      decor: pico.decor.map((d) => (d.kind === 'led' ? { ...d, tele: null, unreadable: true, label: 'LED', note: 'on the wireless chip: not readable live' } : d)) }
+  ];
 
   // a board as one revision draws it: names, parts and pin labels swapped in.
   // Pins keep their order (saved wires point at them by index).

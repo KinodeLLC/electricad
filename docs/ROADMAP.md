@@ -3,6 +3,24 @@
 Target: Visual Studio-grade depth, every feature justified by microcontroller
 work. Phases ordered so each ships something usable.
 
+## 0.9.5 — Onboard LEDs
+
+- Every board's LEDs from the makers' files: Arduino Eagle/Altium placement
+  and BOM colours (R4 positions from PCB.PcbDoc, minus the 25.4 mm origin),
+  Adafruit Feather .brd (Feathers now drawn to scale, 50.8 × 22.86 mm),
+  NodeMCU DevKit 1.0 schematic (GPIO2 + GPIO16, active-low, no power LED),
+  Pico BOM (green GP25; Pico W LED on the CYW43, marked not readable).
+- Behaviour: pin LEDs follow the pin (LOW lights active-low ones, PWM dims by
+  duty), ON = board plugged in / streaming / simulated, TX/RX blink on serial
+  out/in, telemetry lines and uploads; Leonardo TX/RX on D30/D17 and R4 Minima
+  on D21/D22 follow the pins; Feather CHG follows a battery setting;
+  NeoPixel colour (ELECTRICAD_NEOPIXEL, auto-added) and the R4 WiFi 12×8
+  matrix (framebuffer read by the telemetry header; pixel i = designator i+1,
+  checked against the charlieplex table and the nets).
+- Telemetry library 0.7.0: UNO R4 (Renesas PmnPFS), `n=` NeoPixels, `x=` matrix.
+- With no board streaming, a running wiring simulation drives the board LEDs.
+- Next: 0.9.6 simulator (damage, animated current), 0.9.7 AI copilot.
+
 ## 0.9.4 — Real boards
 
 - Uno R3, Mega 2560 Rev3, Nano 3.x, Leonardo, Nano Every drawn in mm from

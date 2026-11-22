@@ -1078,6 +1078,7 @@
     lastDeviceIds = ids;
     S.devices = list;
     renderDeviceChip();
+    updateBoardPower();
     // auto-adopt: exactly one recognized device and nothing selected yet
     if (!S.selectedId && !S.uploading) {
       const known = list.filter((d) => d.alive && (d.fqbn || d.chip || d.kind === 'pi'));
@@ -1190,9 +1191,11 @@
     logTo('outputLog', `— upload to ${port} —`, 'meta');
     if (S.settings.serial && S.settings.serial.clearOnUpload) clearSerial();
     let r;
+    uploadLeds(true);
     try {
       r = await api.toolchain.upload({ sketchDir: S.project.dir, fqbn: S.fqbn, port, inputDir });
     } catch (e) { r = { ok: false, raw: e.message }; }
+    uploadLeds(false);
     S.uploading = false;
     setBuilding(null);
     buildProgress(false);
@@ -2362,9 +2365,12 @@
     $('boardFace').textContent = BV.face === 'back' ? 'Back' : 'Front';
     $('boardFace').classList.toggle('on', BV.face === 'back');
     $('boardRot').textContent = '⟳ ' + BV.rot + '°';
+    if (S.board && S.board.destroy) S.board.destroy();
     S.board = PinodeBoard.create($('boardHost'), def, onPinHover, {
-      mode: imgs.length ? BV.mode : 'drawn', face: BV.face, rot: BV.rot, image, opacity: BV.opacity,
-      title: rev ? 'Arduino ' + rev.name.replace(/^Arduino /, '') : def.name });
+      mode: imgs.length ? BV.mode : 'drawn', face: BV.face, rot: BV.rot, image, opacity: BV.opacity, battery: BV.battery || 'none',
+      title: rev ? (/^(Feather|Pico)/.test(rev.name) ? rev.name : 'Arduino ' + rev.name.replace(/^Arduino /, '')) : def.name });
+    $('boardBattery').style.display = S.board.hasCharge ? '' : 'none';
+    $('boardBattery').value = BV.battery || 'none';
     if (BV.mode !== 'drawn' && !imgs.length) {
       const n = document.createElement('div');
       n.className = 'bv-note';
@@ -2383,7 +2389,41 @@
       cr.textContent = base.geo ? 'Drawn to scale from ' + base.geo.source : 'Pin order checked, positions approximate';
     }
     cr.title = cr.textContent;
-    if (S.lastPins && S.lastPins.length) S.board.paint(S.lastPins, (S.lastSnap && S.lastSnap.analog) || []);
+    if (S.lastPins && S.lastPins.length) S.board.paint(S.lastPins, (S.lastSnap && S.lastSnap.analog) || [], S.lastSnap);
+    updateBoardPower();
+  }
+  $('boardBattery').addEventListener('change', (e) => { BV.battery = e.target.value; saveBV(); if (S.board) S.board.setBattery(BV.battery); });
+
+  // ---- onboard LEDs: power, simulator ------------------------------------------
+  // The ON LED is lit while the board has power: plugged in (its port is
+  // listed), streaming telemetry, or the circuit simulator running it.
+  // With no live board, a running simulation drives the pins (and so L and
+  // any other pin LED) from the pins you set on the wiring canvas.
+  function teleFresh() { return Date.now() - (S.lastTeleTs || 0) < 2000; }
+  function boardPlugged() { return !!(S.port && (S.devices || []).some((d) => d.path === S.port)); }
+  function simStates() { return window.PinodeWiring && PinodeWiring.simPinStates ? PinodeWiring.simPinStates() : null; }
+  function updateBoardPower() {
+    if (!S.board) return;
+    S.board.powerOn(teleFresh() || boardPlugged() || !!simStates());
+  }
+  setInterval(() => {
+    updateBoardPower();
+    if (teleFresh() || !S.board) return;
+    const sim = simStates();
+    if (!sim) { if (S.boardSimPainted) { S.boardSimPainted = false; S.board.markStale(); } return; }
+    const def = PINODE_BOARDS[S.boardDefId];
+    const pins = [];
+    for (let i = 0; i < (def.digitalCount || 0); i++) pins.push(sim.get(i) ? { pin: i, level: 0, ...sim.get(i) } : { pin: i, mode: 'in', level: 0 });
+    S.board.paint(pins, []);
+    S.boardSimPainted = true;
+    const ts = $('teleState');
+    if (ts.textContent !== 'simulated') { ts.textContent = 'simulated'; ts.className = 'badge sim'; }
+  }, 400);
+  // an upload is real serial traffic both ways: the TX/RX LEDs flicker
+  let uploadBlink = null;
+  function uploadLeds(on) {
+    clearInterval(uploadBlink); uploadBlink = null;
+    if (on) uploadBlink = setInterval(() => { if (!S.board) return; S.board.flash(Math.random() < 0.5 ? 'tx' : 'rx'); }, 70);
   }
   // side by side or stacked depends on the pane's shape: redo it when that changes
   if (window.ResizeObserver) {
@@ -2444,13 +2484,14 @@
     if (source === 'pi' && S.boardDefId !== 'pi') setBoardView('pi');
     const pins = expandSnap(snap, def.digitalCount);
     S.lastPins = pins;
-    S.board && S.board.paint(pins, snap.analog);
+    S.board && S.board.paint(pins, snap.analog, snap);
+    if (source === 'serial') S.board && S.board.flash && S.board.flash('tx');   // the telemetry line is serial out
     feedTimeline(pins.filter((p) => def.pins.some((q) => q.tele === p.pin)));
     const ts = $('teleState');
     ts.textContent = source === 'pi' ? 'pi live' : 'live';
     ts.className = 'badge';
     clearTimeout(ts._h);
-    ts._h = setTimeout(() => { ts.textContent = 'stalled'; ts.className = 'badge off'; S.board && S.board.markStale(); }, 2000);
+    ts._h = setTimeout(() => { ts.textContent = 'stalled'; ts.className = 'badge off'; S.board && S.board.markStale(); updateBoardPower(); }, 2000);
   });
   api.on('pi:status', (s) => {
     $('stPi').textContent = 'pi: ' + (s.open ? s.host : 'off');
@@ -3679,7 +3720,12 @@
     let src = m.getValue();
     if (/ELECTRICAD_TICK\s*\(/.test(src) && /ElectriCADTelemetry\.h/.test(src)) return toast('This sketch already streams telemetry');
     const edits = [];
-    if (!/ElectriCADTelemetry\.h/.test(src)) src = '#include <ElectriCADTelemetry.h>\n' + src;
+    // after the sketch's own includes, so it can see the LED matrix frame
+    if (!/ElectriCADTelemetry\.h/.test(src)) {
+      const incs = [...src.matchAll(/^[ \t]*#include[^\n]*\n/gm)];
+      const at = incs.length ? incs[incs.length - 1].index + incs[incs.length - 1][0].length : 0;
+      src = src.slice(0, at) + '#include <ElectriCADTelemetry.h>\n' + src.slice(at);
+    }
     if (!/ELECTRICAD_BEGIN\s*\(/.test(src)) {
       const setupRe = /(void\s+setup\s*\(\s*\)\s*\{[^\n]*\n)/;
       const serialRe = /^([ \t]*)Serial\.begin\s*\([^)]*\)\s*;[^\n]*\n/m;
@@ -3691,6 +3737,14 @@
     }
     if (!/ELECTRICAD_BEGIN\s*\(/.test(src) || !/ELECTRICAD_TICK\s*\(/.test(src)) {
       return toast('Couldn\'t find setup()/loop() — add ELECTRICAD_BEGIN() and ELECTRICAD_TICK() by hand', 5000);
+    }
+    // an Adafruit_NeoPixel object: send its colours so the onboard RGB lights
+    if (!/ELECTRICAD_NEOPIXEL\s*\(/.test(src)) {
+      const np = /\bAdafruit_NeoPixel\s+(\w+)\s*[({]/.exec(src);
+      if (np) {
+        const beginRe = new RegExp('^([ \\t]*)' + np[1] + '\\.begin\\s*\\(\\s*\\)\\s*;[^\\n]*\\n', 'm');
+        if (beginRe.test(src)) src = src.replace(beginRe, (line, ind) => line + ind + 'ELECTRICAD_NEOPIXEL(' + np[1] + ');\n');
+      }
     }
     edits.push({ range: m.getFullModelRange(), text: src });
     S.editor.pushUndoStop();
@@ -3735,7 +3789,8 @@ void loop()  { ELECTRICAD_TICK(); /* your code */ }</pre>
 <p><b>ELECTRICAD_DELAY(ms)</b> is a drop-in <code>delay()</code> that keeps telemetry flowing while it waits.</p>
 <p><b>ELECTRICAD_I2C_SCAN(Wire)</b> lists every I2C device in the I2C Bus panel, with names.</p>
 <p>Telemetry lines start with <code>~PN</code> and never show in the serial monitor, so your own <code>Serial.print</code> output stays clean. The plotter reads <code>label:value</code> pairs or comma-separated numbers.</p>
-<p class="dim">Supported: AVR (Uno, Nano, Mega), ESP32, ESP8266, RP2040, SAMD (Feather M0/M4). Command palette → "Add live telemetry to this sketch" does it for you.</p>`);
+<p><b>ELECTRICAD_NEOPIXEL(strip)</b> after <code>strip.begin()</code> sends the NeoPixel colours, so the board's RGB LED lights in its real colour. On the UNO R4 WiFi the LED matrix is sent by itself when <code>Arduino_LED_Matrix.h</code> is included before the telemetry header.</p>
+<p class="dim">Supported: AVR (Uno, Nano, Mega, Leonardo), megaAVR (Nano Every), UNO R4, ESP32, ESP8266, RP2040, SAMD (Feather M0/M4). Command palette → "Add live telemetry to this sketch" does it for you, NeoPixel line included.</p>`);
   }
   async function showAbout() {
     const i = await api.app.info().catch(() => ({}));
@@ -5047,6 +5102,9 @@ void loop()  { ELECTRICAD_TICK(); /* your code */ }</pre>
     docMarkdown(box.querySelector('.md-preview'), md);
   }
   const WHATS_NEW = [
+    ['💡 Onboard LEDs (0.9.5)', 'Every board LED is where it really is, in its real colour, and works like the real one: ON with power, L with its pin (dimmed by PWM), TX/RX with serial traffic and uploads, the Feather charge LED, NeoPixel colours and the UNO R4 WiFi LED matrix. Hover an LED to see what drives it.'],
+    ['🪶 Feathers to scale (0.9.5)', 'The Feather ESP32, RP2040, M0 (Basic and Express) and M4 are now drawn from Adafruit\'s own board files, so every pin, LED and part is where it is on the real board.'],
+    ['🧪 LEDs in the simulator (0.9.5)', 'No board plugged in? Press Run on the wiring canvas and the pins you set there light the board\'s LEDs. Live telemetry now also covers the UNO R4.'],
     ['📷 Real boards (0.9.4)', 'The Live Board shows the real board: official Arduino images and real photos, lined up pad for pad with the live pins. Pick Drawn, Image, Both (side by side) or Overlay, turn the board over to see the back, and rotate it in 90° steps.'],
     ['📐 Drawn to scale (0.9.4)', 'Uno, Mega, Nano, Leonardo and Nano Every are now drawn from Arduino\'s own CAD files: every header, ICSP pin, LED and mounting hole where it really is. The Mega now has its 2×18 header the right way round and the Nano is no longer mirrored.'],
     ['🔀 Revisions (0.9.4)', 'UNO R3, R4 Minima and R4 WiFi each have their own picture, LEDs and pin names, picked from the board you select. ⚑ Report wrong image sends the exact picture and revision.'],

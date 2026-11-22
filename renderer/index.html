@@ -210,6 +210,9 @@
           <span class="grow"></span>
           <button id="boardFace" class="mini" title="Turn the board over (mirrored, as you would see the back)">Front</button>
           <button id="boardRot" class="mini" title="Rotate 90° clockwise">⟳ 0°</button>
+          <select id="boardBattery" class="input slim" title="Battery on the JST plug: sets what the orange CHG LED does" style="display:none">
+            <option value="none">No battery</option><option value="charging">Battery charging</option><option value="full">Battery full</option>
+          </select>
         </div>
         <div id="boardHost"></div>
         <div class="img-report"><span id="boardCredit" class="dim2"></span><a href="#" id="boardReport" title="Tell us if this board picture is wrong: pins, headers, orientation or revision">⚑ Report wrong image</a></div>

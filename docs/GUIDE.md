@@ -53,8 +53,8 @@ Open **Parts** and stay on the **JLCPCB / LCSC** tab. Type a part number (NE555)
 
 The board on the right is drawn to scale from the manufacturer's CAD files for
 the Arduino Uno (R3, R4 Minima, R4 WiFi), Mega 2560, Nano, Leonardo and Nano
-Every: every header pin, ICSP pin, LED and mounting hole is where it is on the
-real board. Other boards show their pins in the right order but not to scale
+Every, and from Adafruit's for the Feathers: every header pin, ICSP pin, LED
+and mounting hole is where it is on the real board. Other boards show their pins in the right order but not to scale
 (the line under the board says which).
 
 - **Drawn / Image / Both / Overlay**: the drawing, a real picture with the live
@@ -71,6 +71,29 @@ real board. Other boards show their pins in the right order but not to scale
 - **⟳**: rotate 90° clockwise, to match how the board sits on your desk.
 - **⚑ Report wrong image**: if a picture, pin or revision is wrong, this sends
   the exact picture, revision and view to Kinode.
+
+### Onboard LEDs
+
+Every LED the real board has is drawn where it sits, in its real colour, and
+does what the real one does. Hover one to see what drives it.
+
+- **ON / PWR** is lit while the board has power: plugged in, streaming
+  telemetry, or running in the simulator.
+- **L** (and any LED on a pin) follows that pin. PWM dims it by duty, and
+  LEDs wired to 3V3 (the NodeMCU's two blue LEDs) light when the pin is LOW.
+- **TX / RX** blink when the board sends or receives serial data, telemetry
+  lines and uploads included. On the Leonardo and the UNO R4 Minima they are
+  pins of the chip itself, so they follow those pins when the sketch drives them.
+- **CHG** on a Feather is the battery charger: pick *No battery* (it may
+  flicker, as Adafruit notes), *Battery charging* or *Battery full*.
+- **NeoPixel** on Feathers shows its real colour when the sketch calls
+  `ELECTRICAD_NEOPIXEL(strip)` (Add live telemetry adds it for you).
+- **UNO R4 WiFi matrix** shows the frame on the 12 × 8 matrix, as long as
+  `Arduino_LED_Matrix.h` is included before the telemetry header.
+- With no board streaming, press **Run** on the wiring canvas: the pins you
+  set there drive the board's LEDs.
+- The Pico W's LED is on its wireless chip, which the live view cannot read,
+  so it is drawn with a dashed ring.
 
 ## Reporting a problem
 

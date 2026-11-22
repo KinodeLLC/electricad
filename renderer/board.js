@@ -87,16 +87,44 @@ window.PinodeBoard = (function () {
         }
       }
     }
-    // LEDs light up in every mode; on the back they are hidden by the board
+    // LEDs light up in every mode; on the back they are hidden by the board.
+    // Each one is a dark lens with a glow layer whose opacity is the light.
     if (!T.back && (showDrawing || opt.mode === 'image')) {
+      const R = def.unitsPerMm ? 3.4 : 4;
+      const tip = (d, what) => { const t = el('title', {}, null); t.textContent = d.label + ' · ' + what; return t; };
       for (const d of def.decor || []) {
-        if (d.kind !== 'led') continue;
-        const led = el('circle', { cx: d.x, cy: d.y, r: def.unitsPerMm ? 3.4 : 4, class: 'pin-pad mode-out level-0 led' }, g);
-        led.dataset.led = '1';
-        led.dataset.color = d.color || '#3fd07a';
-        if (d.tele != null) led.setAttribute('data-tele', d.tele);
-        if (d.role) led.dataset.role = d.role;
-        if (d.invert) led.dataset.invert = '1';
+        if (d.kind === 'led') {
+          const led = el('g', { class: 'led' + (d.unreadable ? ' unknown' : '') }, g);
+          el('circle', { cx: d.x, cy: d.y, r: R, class: 'led-lens' }, led);
+          el('circle', { cx: d.x, cy: d.y, r: R, class: 'led-glow', fill: d.color || '#3fd07a', opacity: 0 }, led);
+          led.appendChild(tip(d, d.note || (d.role === 'power' ? 'lit while the board has power'
+            : d.role === 'charge' ? 'battery charger: lit while charging'
+            : d.role ? (d.role === 'tx' ? 'blinks when the board sends serial data' : 'blinks when the board receives serial data')
+            : d.tele != null ? 'follows pin ' + d.tele + (d.invert ? ' (LOW = on)' : '') : 'onboard LED')));
+          led.dataset.led = '1';
+          led.dataset.color = d.color || '#3fd07a';
+          if (d.tele != null) led.setAttribute('data-tele', d.tele);
+          if (d.role) led.dataset.role = d.role;
+          if (d.invert) led.dataset.invert = '1';
+        } else if (d.kind === 'rgb') {
+          // a NeoPixel: white 3.5 mm package, the die shows the colour
+          const s = def.unitsPerMm ? 1.75 * def.unitsPerMm : 7;
+          const led = el('g', { class: 'led rgb' }, g);
+          el('rect', { x: d.x - s, y: d.y - s, width: 2 * s, height: 2 * s, rx: 1, class: 'rgb-body' }, led);
+          el('circle', { cx: d.x, cy: d.y, r: s * 0.62, class: 'led-lens' }, led);
+          el('circle', { cx: d.x, cy: d.y, r: s * 0.62, class: 'led-glow', fill: '#000', opacity: 0 }, led);
+          led.appendChild(tip(d, 'NeoPixel on pin ' + d.tele + ' (shows its colour when the sketch uses ELECTRICAD_NEOPIXEL)'));
+          led.dataset.rgb = String(d.tele);
+        } else if (d.kind === 'matrix' && d.points) {
+          const mg = el('g', { class: 'led-matrix' }, g);
+          const w = def.unitsPerMm ? 1.6 * def.unitsPerMm : 6, h = def.unitsPerMm ? 0.8 * def.unitsPerMm : 3;
+          d.points.forEach(([x, y], i) => {
+            el('rect', { x: x - w / 2, y: y - h / 2, width: w, height: h, rx: 0.4, class: 'led-lens' }, mg);
+            const lit = el('rect', { x: x - w / 2 - 0.6, y: y - h / 2 - 0.6, width: w + 1.2, height: h + 1.2, rx: 0.8, class: 'led-glow', fill: d.color, opacity: 0 }, mg);
+            lit.dataset.px = String(i);
+          });
+          mg.appendChild(tip(d, '12 × 8, follows Arduino_LED_Matrix'));
+        }
       }
     }
 
@@ -120,10 +148,14 @@ window.PinodeBoard = (function () {
       }
     }
     if (showDrawing && def.name) {
-      const t = el('text', { x: 8, y: T.vh - 8, class: 'board-title' }, labels);
+      // boards with their labels outside along the long edges (Feathers, a
+      // turned Nano) carry the title on the board, clear of those labels
+      const inside = def.geo && !def.labelsIn && T.vw > T.vh;
+      const M = (def.geo && def.geo.margin) || 10;
+      const t = el('text', inside ? { x: M + 20 * def.unitsPerMm, y: T.vh - M - 3.4 * def.unitsPerMm, class: 'board-title' } : { x: 8, y: T.vh - 8, class: 'board-title' }, labels);
       t.textContent = (opt.title || def.name).toUpperCase() + (T.back ? ' (BACK)' : '');
       // narrow boards (the Nanos) get a smaller title so it stays on the board
-      const fit = (T.vw - 16) / (t.textContent.length * 0.78);
+      const fit = (T.vw - 16 - (inside ? 2 * M + 22 * def.unitsPerMm : 0)) / (t.textContent.length * 0.78);
       if (fit < 7) t.style.fontSize = Math.max(3.5, fit).toFixed(2) + 'px';
     }
 
@@ -166,13 +198,17 @@ window.PinodeBoard = (function () {
         if (!shared.history.has(p.tele)) shared.history.set(p.tele, { ring: new Uint8Array(HISTORY), i: 0, n: 0 });
       }
     }
-    // led decor with a pin joins the pad map; role leds are driven directly
+    // LEDs: by pin, by role (power, tx, rx, charge; a role LED can also sit
+    // on a pin, like the Leonardo's), NeoPixels by data pin, matrix pixels
     svg.querySelectorAll('[data-led]').forEach((led) => {
-      if (led.dataset.role) { (shared.roleLeds[led.dataset.role] || []).push(led); return; }
+      if (led.dataset.role) (shared.roleLeds[led.dataset.role] || []).push(led);
+      if (led.getAttribute('data-tele') == null) return;
       const t = Number(led.getAttribute('data-tele'));
-      if (!shared.pads.has(t)) shared.pads.set(t, []);
-      shared.pads.get(t).push(led);
+      if (!shared.leds.has(t)) shared.leds.set(t, []);
+      shared.leds.get(t).push(led);
     });
+    svg.querySelectorAll('[data-rgb]').forEach((led) => shared.rgb.push(led));
+    svg.querySelectorAll('[data-px]').forEach((px) => { shared.matrix[Number(px.dataset.px)] = shared.matrix[Number(px.dataset.px)] || []; shared.matrix[Number(px.dataset.px)].push(px); });
     return svg;
   }
 
@@ -180,7 +216,7 @@ window.PinodeBoard = (function () {
     const opt = Object.assign({ mode: 'drawn', face: 'front', rot: 0, image: null, opacity: 0.5 }, opts || {});
     if (opt.mode !== 'drawn' && !opt.image) opt.mode = 'drawn';
     host.innerHTML = '';
-    const shared = { pads: new Map(), history: new Map(), roleLeds: { power: [], tx: [], rx: [] }, latest: null };
+    const shared = { pads: new Map(), leds: new Map(), history: new Map(), roleLeds: { power: [], tx: [], rx: [], charge: [] }, rgb: [], matrix: [], latest: null };
     const lastStates = new Map();
     let lastAnalog = [];
     let lastFrame = 0;
@@ -208,35 +244,33 @@ window.PinodeBoard = (function () {
       }
     } else drawView(host, def, opt, shared, onHover);
 
-    function setLed(led, on) {
-      const c = led.dataset.color;
-      led.style.fill = on ? c : '#2a2a2a';
-      led.style.filter = on ? `drop-shadow(0 0 5px ${c})` : '';
+    // b = 0..1 light output. What the eye sees is brighter than the duty
+    // cycle at low PWM, so the glow follows a square-root curve.
+    function setLed(led, b) {
+      const glow = led.querySelector('.led-glow');
+      if (!glow) return;
+      const v = b > 0 ? Math.min(1, Math.sqrt(b)) : 0;
+      glow.setAttribute('opacity', v.toFixed(3));
+      glow.style.filter = v > 0.05 ? `drop-shadow(0 0 ${(1 + v * 4).toFixed(1)}px ${glow.getAttribute('fill')})` : '';
+      led.classList.toggle('lit', v > 0.05);
     }
+    const pinDriven = new Map();   // tele → true while telemetry says the pin is an output
 
-    function paint(states, analog) {
+    function paint(states, analog, extra) {
       lastFrame = Date.now();
       lastAnalog = analog || [];
       for (const s of states) {
         lastStates.set(s.pin, s);
         const els = shared.pads.get(s.pin);
-        if (!els) continue;
         const cls = 'pin-pad mode-' + s.mode + ' level-' + s.level;
-        for (const e of els) {
-          if (e.dataset.led) {
-            // faithful behavior: LED is lit when its pin drives it —
-            // active-high normally, active-low where the real board inverts
-            // (NodeMCU's blue LED). PWM = proportionally dim glow.
-            const lit = e.dataset.invert
-              ? (s.mode !== 'in' && !s.level)
-              : (s.level === 1 || s.mode === 'pwm');
-            const c = e.dataset.color;
-            e.style.fill = lit ? c : '#2a2a2a';
-            const glow = s.mode === 'pwm' ? Math.max(1, ((s.pwm || 0) / 255) * 6) : 5;
-            e.style.filter = lit ? `drop-shadow(0 0 ${glow}px ${c})` : '';
-          } else {
-            e.setAttribute('class', cls);
-          }
+        if (els) for (const e of els) e.setAttribute('class', cls);
+        const leds = shared.leds.get(s.pin);
+        if (leds) for (const led of leds) {
+          const b = ledLevel(s, !!led.dataset.invert);
+          // a role LED on a pin (Leonardo TX/RX) follows the pin while the
+          // sketch's core drives it, and the serial blinks otherwise
+          if (led.dataset.role) { pinDriven.set(s.pin, b != null); if (b == null) continue; }
+          setLed(led, b || 0);
         }
         const h = shared.history.get(s.pin);
         if (h) {
@@ -245,27 +279,87 @@ window.PinodeBoard = (function () {
           h.n = Math.min(h.n + 1, HISTORY);
         }
       }
+      if (extra && extra.neopixel) paintRgb(extra.neopixel);
+      if (extra && extra.matrix) paintMatrix(extra.matrix);
+    }
+    function paintRgb(np) {
+      for (const led of shared.rgb) {
+        const c = np.pin === Number(led.dataset.rgb) ? np.colors[0] : null;
+        const glow = led.querySelector('.led-glow');
+        if (c == null) { glow.setAttribute('opacity', '0'); glow.style.filter = ''; continue; }
+        const r = (c >> 16) & 255, gg = (c >> 8) & 255, b = c & 255, m = Math.max(r, gg, b);
+        if (!m) { glow.setAttribute('opacity', '0'); glow.style.filter = ''; continue; }
+        // hue from the ratio, light from the strongest channel
+        const hex = '#' + [r, gg, b].map((v) => Math.round((v / m) * 255).toString(16).padStart(2, '0')).join('');
+        glow.setAttribute('fill', hex);
+        const v = Math.min(1, Math.sqrt(m / 255));
+        glow.setAttribute('opacity', v.toFixed(3));
+        glow.style.filter = `drop-shadow(0 0 ${(1 + v * 5).toFixed(1)}px ${hex})`;
+      }
+    }
+    function paintMatrix(bytes) {
+      for (let i = 0; i < shared.matrix.length; i++) {
+        const on = !!(bytes[i >> 3] & (1 << (i & 7)));
+        for (const px of shared.matrix[i] || []) px.setAttribute('opacity', on ? '1' : '0');
+      }
     }
 
     function markStale() {
-      host.querySelectorAll('.pin-pad:not(.stale)').forEach((e) => {
-        if (!e.style.fill) e.classList.add('stale');
-      });
-      shared.roleLeds.power.forEach((l) => setLed(l, false)); // board went dark
+      host.querySelectorAll('.pin-pad:not(.stale)').forEach((e) => e.classList.add('stale'));
     }
 
-    // power LED follows telemetry liveness; tx/rx flash on real serial bytes
-    function powerOn(on) { shared.roleLeds.power.forEach((l) => setLed(l, on)); }
+    // power LEDs follow the board having power (plugged in, streaming, or
+    // the simulator running); the charge LED follows the battery setting
+    let powered = false, chgTimer = null;
+    function powerOn(on) {
+      const was = powered;
+      powered = !!on;
+      shared.roleLeds.power.forEach((l) => setLed(l, on ? 1 : 0));
+      // no power, no light: every LED on the board goes dark
+      if (!on) {
+        shared.roleLeds.tx.concat(shared.roleLeds.rx).forEach((l) => setLed(l, 0));
+        for (const list of shared.leds.values()) list.forEach((l) => setLed(l, 0));
+        shared.rgb.forEach((l) => { const g = l.querySelector('.led-glow'); g.setAttribute('opacity', '0'); g.style.filter = ''; });
+        shared.matrix.forEach((list) => (list || []).forEach((px) => px.setAttribute('opacity', '0')));
+      }
+      if (was !== powered) setBattery(opt.battery);
+    }
+    // battery: 'none' (Adafruit: the CHG LED may flicker with no battery),
+    // 'charging' (steady) or 'full' (off). Only on USB power.
+    function setBattery(state) {
+      opt.battery = state || 'none';
+      clearInterval(chgTimer); chgTimer = null;
+      const leds = shared.roleLeds.charge;
+      if (!leds.length) return;
+      if (!powered || opt.battery === 'full') return leds.forEach((l) => setLed(l, 0));
+      if (opt.battery === 'charging') return leds.forEach((l) => setLed(l, 1));
+      let k = 0;
+      chgTimer = setInterval(() => { k++; leds.forEach((l) => setLed(l, (k * 7919) % 5 < 2 ? 0.7 : 0.1)); }, 140);
+    }
     const flashTimers = {};
     function flash(role) {
-      const leds = shared.roleLeds[role] || [];
-      leds.forEach((l) => setLed(l, true));
+      const leds = (shared.roleLeds[role] || []).filter((l) => !pinDriven.get(Number(l.getAttribute('data-tele'))));
+      if (!leds.length) return;
+      leds.forEach((l) => setLed(l, 1));
       clearTimeout(flashTimers[role]);
-      flashTimers[role] = setTimeout(() => leds.forEach((l) => setLed(l, false)), 90);
+      flashTimers[role] = setTimeout(() => leds.forEach((l) => setLed(l, 0)), 60);
     }
+    function destroy() { clearInterval(chgTimer); }
 
-    return { paint, markStale, latest: shared.latest, def, powerOn, flash, opts: opt };
+    return { paint, markStale, latest: shared.latest, def, powerOn, flash, setBattery, destroy, opts: opt, hasCharge: shared.roleLeds.charge.length > 0 };
   }
 
-  return { create, viewTransform };
+  // light from one LED given its pin's state: an output drives it (LOW lights
+  // an active-low LED), PWM dims it by duty, an input leaves it dark except
+  // for the faint glow a pull-up leaks through an active-high LED. null when
+  // the pin isn't driven at all (so a role LED keeps its serial blinks).
+  function ledLevel(s, invert) {
+    if (!s) return null;
+    if (s.mode === 'pwm') { const d = Math.max(0, Math.min(1, (s.pwm || 0) / 255)); return invert ? 1 - d : d; }
+    if (s.mode === 'out') return invert ? (s.level ? 0 : 1) : (s.level ? 1 : 0);
+    if (s.mode === 'in' && s.pull === 'up' && !invert) return 0.02;
+    return invert ? null : 0;
+  }
+
+  return { create, viewTransform, ledLevel };
 })();
