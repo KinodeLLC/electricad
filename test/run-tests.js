@@ -1383,6 +1383,30 @@ t('3D view: only boards with design-file geometry, heights from package standard
   assert(hb.filter((b) => !b.male).length >= 4 && hb.some((b) => b.male), 'uno headers');
   assert(hb.some((b) => b.y1 < 5) && hb.some((b) => b.y2 > 48), 'both rows');
 });
+t('solder joints: every pad from the design files, on the right face, under every header pin', () => {
+  require('../renderer/boardjoints.js');
+  const J = global.window.PINODE_BOARD_JOINTS, P = global.window.PINODE_BOARD_PARTS, B = global.window.PINODE_BOARDS;
+  // the Nano Every publishes no copper, so it has no joints (never guessed)
+  assert(!J['nanoevery/every']);
+  for (const [k, b] of Object.entries(J)) {
+    const def = B[k.split('/')[0]];
+    assert(b.p.length > 100 && b.nets.length > 30, k);
+    for (const r of b.p) {
+      assert(r.length === 8 && [0, 1, 2].includes(r[7]) && b.nets[r[6]] != null, k + ' row');
+      assert(r[0] > -8 && r[0] < def.geo.w + 8 && r[1] > -8 && r[1] < def.geo.h + 8, k + ' ' + r[4] + ' on the board');
+    }
+    // every header pin that is wired sits on a through-hole joint
+    const th = b.p.filter((r) => r[7] === 0);
+    for (const pin of def.pins.filter((q) => q.at && q.label !== 'NC')) assert(th.some((r) => Math.hypot(r[0] - pin.at[0], r[1] - pin.at[1]) < 0.3), k + ' ' + pin.label);
+    // SMD pads are on the same face as their part
+    const side = Object.fromEntries((P[k] || []).map((c) => [c.ref, c.side || 'top']));
+    for (const r of b.p) if (r[7] && side[r[4]]) assert.strictEqual(r[7] === 2, side[r[4]] === 'bottom', k + ' ' + r[4]);
+  }
+  const u = J['uno/r3'], net = (r) => u.nets[r[6]];
+  const d13 = u.p.find((r) => r[7] === 0 && Math.hypot(r[0] - B.uno.pins.find((q) => q.label === '13').at[0], r[1] - B.uno.pins.find((q) => q.label === '13').at[1]) < 0.3);
+  assert(d13 && /13|SCK/.test(net(d13)), 'pin 13 joint is on the D13/SCK net: ' + (d13 && net(d13)));
+  assert(u.p.some((r) => r[6] === d13[6] && r[4] === 'ZU4'), 'and goes to the ATmega328P socket');
+});
 t('3D camera: presets, short-way turns and an up vector that never flips', () => {
   const D = global.window.PinodeBoard3D, P = D.PRESETS, C = D._cam;
   for (const v of ['home', 'iso', 'top', 'bottom', 'front', 'back', 'left', 'right']) assert(P[v] && Number.isFinite(P[v].theta) && Number.isFinite(P[v].phi), v);

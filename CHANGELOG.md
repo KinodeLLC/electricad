@@ -4,6 +4,18 @@ All notable changes to ElectriCAD. Downloads for each version are on the
 [Releases page](https://github.com/KinodeLLC/electricad/releases). The full
 design notes for each version are in [docs/ROADMAP.md](docs/ROADMAP.md).
 
+## 0.9.9 — Solder joints and honest hover in 3D
+
+- Fixed: in the 3D view, hovering the bottom of the board showed parts that
+  sit on the top. Hover now answers only for the nearest visible surface.
+- New: every pad and solder joint from the makers' design files
+  (tools/extract-board-joints.js → renderer/boardjoints.js): part, pad, net
+  and whether it is through-hole or surface-mount. Hover one in 3D to see the
+  header pin it belongs to and everything else on its net; the whole net
+  lights up. Header plastic and pins answer for the pin under the pointer.
+  Test pads and empty footprints say so. The Nano Every publishes no copper,
+  so it has no joints; clone boards have none either (no design files).
+
 ## 0.9.8 — 3D movement controls
 
 - Smooth, eased camera in the 3D view with flick inertia. Respects the

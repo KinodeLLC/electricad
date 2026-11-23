@@ -71,7 +71,10 @@ and mounting hole is where it is on the real board. Other boards show their pins
   or WASD spin and tilt, Shift + arrows move, + / − zoom, 1 Front, 2 Back,
   3 Left, 4 Right, 5 Top, 6 Bottom, 0 Iso, H Home, F Fit, Space Auto, ? lists
   everything. On a touch screen one finger spins and two fingers pinch and
-  move. Parts sit where the
+  move. Hover answers only for what you can see. Hover a solder joint or pad
+  (turn the board over for the joints) to see its part, pad, net, header pin
+  and everything else it connects to; the whole net lights up. Click it for
+  the part's card. Parts sit where the
   makers' design files put them, at their package's standard height (an 0603
   resistor 0.5 mm, a female header 8.5 mm); the silkscreen, markings and live
   pins are painted on and update as the board runs. Hover a part for its box.

@@ -220,6 +220,7 @@ window.PinodeBoard3D = (function () {
     const goal = { theta: PRESETS.home.theta, phi: PRESETS.home.phi, dist: 0, tx: 0, ty: 0, tz: 0 };
     const cur = Object.assign({}, goal);
     const vel = { t: 0, p: 0 };
+    const T3 = 1.6;   // board thickness, mm
     let bounds = null, box = null, fitted = true, spin = false;
     const reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     try { spin = localStorage.getItem('ec.b3d.autospin') === '1'; } catch (e) { /* storage off */ }
@@ -290,11 +291,38 @@ window.PinodeBoard3D = (function () {
       scene.add(new THREE.Mesh(ex, [new THREE.MeshBasicMaterial({ visible: false }), new THREE.MeshStandardMaterial({ color: mask.clone().multiplyScalar(0.7), roughness: 0.8 })]));
       const top = mapUv(new THREE.ShapeGeometry(sh, 24), uvF);
       const tm = new THREE.Mesh(top, new THREE.MeshStandardMaterial({ map: texF, roughness: 0.55, metalness: 0.05 }));
-      tm.position.z = T + 0.005; scene.add(tm);
+      tm.position.z = T + 0.005; tm.userData.face = 'top'; scene.add(tm);
       const bot = mapUv(new THREE.ShapeGeometry(sh, 24), uvB);
       const bm = new THREE.Mesh(bot, new THREE.MeshStandardMaterial({ map: texB, roughness: 0.55, metalness: 0.05, side: THREE.BackSide }));
-      bm.position.z = -0.005; scene.add(bm);
+      bm.position.z = -0.005; bm.userData.face = 'bottom'; scene.add(bm);
 
+      // solder joints from the design files: through-hole joints on both faces
+      // (except the header pins, which the painted faces draw with their live
+      // state) and the pads of parts on the bottom
+      if (opt.joints && opt.joints.p) {
+        const pinAt = (x, y) => (def.pins || []).some((p) => p.at && Math.hypot(p.at[0] - x, p.at[1] - y) < 0.3);
+        const tin = new THREE.MeshStandardMaterial({ color: 0xc9cbc6, metalness: 0.75, roughness: 0.32, side: THREE.DoubleSide });
+        const groups = { top: [], bottom: [] };
+        for (const r of opt.joints.p) {
+          if (r[7] === 0 && !pinAt(r[0], r[1])) { groups.top.push(r); groups.bottom.push(r); }
+          else if (r[7] === 2) groups.bottom.push(r);
+        }
+        const disc = new THREE.CircleGeometry(1, 20), sq = new THREE.PlaneGeometry(2, 2);
+        for (const [face, rows] of Object.entries(groups)) {
+          for (const [geo, list] of [[disc, rows.filter((r) => r[7] === 0)], [sq, rows.filter((r) => r[7] !== 0)]]) {
+            if (!list.length) continue;
+            const im = new THREE.InstancedMesh(geo, tin, list.length);
+            const mx = new THREE.Matrix4();
+            list.forEach((r, i) => {
+              const rr = r[7] === 0 ? Math.min(r[2], r[3]) * 0.92 : 0;
+              mx.makeScale(rr || r[2], rr || r[3], 1).setPosition(r[0], r[1], face === 'top' ? T + 0.015 : -0.015);
+              im.setMatrixAt(i, mx);
+            });
+            im.userData.face = face;
+            scene.add(im);
+          }
+        }
+      }
       // parts, at their standard package heights
       for (const c of parts) {
         const h = partHeight(c);
@@ -304,18 +332,20 @@ window.PinodeBoard3D = (function () {
         const odd = ((c.rot || 0) % 90 + 90) % 90;
         const round = c.kind === 'ecap' && /PANASONIC/i.test(c.pkg || '');
         const m = body(r, down ? 0 : T, h, BODY[c.kind], { down, round, metal: c.kind === 'module' || c.kind === 'xtal' || round, rot: odd ? ((g0.portrait ? 1 : -1) * odd * Math.PI) / 180 : 0 });
-        m.userData.part = c;
+        // the body and its painted cap both answer for the part
+        for (const ch of m.parent.children) ch.userData.part = c;
         pickables.push(m);
       }
       // the headers the board ships with
       for (const b of B2().headerBoxes ? B2().headerBoxes(def, opt.parts) : []) {
         if (!def.headers) break;
-        body(b, T, b.male ? 2.5 : 8.5, 0x121213, {});
+        const hm = body(b, T, b.male ? 2.5 : 8.5, 0x121213, {});
+        for (const ch of hm.parent.children) ch.userData.th = true;   // header plastic: the pin under the pointer
         if (b.male) {
           const posts = b.pinsAt || (def.pins || []).filter((p) => p.at && p.at[0] > b.x1 && p.at[0] < b.x2 && p.at[1] > b.y1 && p.at[1] < b.y2).map((p) => p.at);
           for (const [px, py] of posts) {
             const pm = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.64, 8.5), new THREE.MeshStandardMaterial({ color: 0xd9b45a, metalness: 0.8, roughness: 0.3 }));
-            pm.position.set(px, py, T + 4.25 + 0.5); scene.add(pm);
+            pm.position.set(px, py, T + 4.25 + 0.5); pm.userData.th = true; scene.add(pm);
           }
         }
       }
@@ -520,16 +550,65 @@ window.PinodeBoard3D = (function () {
 
     // pointer: drag spins, right/shift drag pans, wheel zooms at the pointer,
     // two fingers pinch and pan, double-click fits, hover shows the part
-    let drag = null, hoverPart = null;
+    let drag = null, hoverPart = null, hoverJoint = null;
     const touches = new Map();
     function ndc(e) {
       const r = renderer.domElement.getBoundingClientRect();
       return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     }
-    function partAt(e) {
+    // what the pointer is really on: the nearest visible surface, so a part
+    // on the far face never answers through the board
+    const visibleHit = (h) => {
+      const m = h.object.material;
+      const mat = Array.isArray(m) ? m[h.face ? h.face.materialIndex : 0] : m;
+      return mat && mat.visible !== false && h.object.visible !== false;
+    };
+    const JOINTS = opt.joints && opt.joints.p ? opt.joints : null;
+    function jointAt(x, y, face, near) {
+      if (!JOINTS) return null;
+      let best = null, bd = Infinity;
+      for (const r of JOINTS.p) {
+        if (face === 'top' ? r[7] === 2 : face === 'bottom' ? r[7] === 1 : r[7] !== 0) continue;
+        const dx = Math.abs(x - r[0]), dy = Math.abs(y - r[1]);
+        const inside = near ? Math.hypot(dx, dy) < near : dx <= r[2] + 0.12 && dy <= r[3] + 0.12;
+        if (!inside) continue;
+        const d = Math.hypot(dx, dy);
+        if (d < bd) { bd = d; best = r; }
+      }
+      return best ? { x: best[0], y: best[1], hx: best[2], hy: best[3], ref: best[4], pad: best[5], net: JOINTS.nets[best[6]], kind: best[7], face, row: best } : null;
+    }
+    function pickAt(e) {
       const rc = new THREE.Raycaster(); rc.setFromCamera(ndc(e), camera);
-      const hit = rc.intersectObjects(pickables, false)[0];
-      return hit ? hit.object.userData.part : null;
+      const hit = rc.intersectObjects(scene.children, true).find(visibleHit);
+      if (!hit || hit.object.userData.noPick) return null;
+      const u = hit.object.userData;
+      if (u.part) return { part: u.part };
+      if (u.face) { const j = jointAt(hit.point.x, hit.point.y, u.face); return j ? { joint: j } : null; }
+      if (u.th) { const j = jointAt(hit.point.x, hit.point.y, null, 1.4); return j ? { joint: Object.assign(j, { face: 'top' }) } : null; }
+      return null;
+    }
+    function partAt(e) { const p = pickAt(e); return p && p.part ? p.part : null; }
+    // light up the joint under the pointer and every joint on the same net
+    let glow = null;
+    function showNet(j) {
+      if (glow) { scene.remove(glow); glow.traverse((o) => o.geometry && o.geometry.dispose()); glow = null; }
+      if (!j || !JOINTS) { dirty = true; return; }
+      glow = new THREE.Group();
+      const net = j.row[6];
+      const matNet = new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false });
+      const matMe = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
+      for (const r of JOINTS.p) {
+        if (r[6] !== net) continue;
+        const me = r === j.row;
+        const g = new THREE.PlaneGeometry(Math.max(0.5, r[2] * 2 + 0.3), Math.max(0.5, r[3] * 2 + 0.3));
+        for (const z of r[7] === 0 ? [T3 + 0.03, -0.03] : r[7] === 1 ? [T3 + 0.03] : [-0.03]) {
+          const m = new THREE.Mesh(g, me ? matMe : matNet);
+          m.position.set(r[0], r[1], z); m.renderOrder = 5; m.userData.noPick = true; m.raycast = () => {};
+          glow.add(m);
+        }
+      }
+      scene.add(glow);
+      dirty = true;
     }
     // the point on the board (or the plane through the target) under the pointer
     function pointAt(e) {
@@ -539,7 +618,11 @@ window.PinodeBoard3D = (function () {
       const pl = new THREE.Plane(new THREE.Vector3(0, 0, 1), -cur.tz), p = new THREE.Vector3();
       return rc.ray.intersectPlane(pl, p) ? p : null;
     }
-    function leaveHover(e) { if (hoverPart && opt.onPart) opt.onPart(hoverPart, 'leave', e); hoverPart = null; }
+    function leaveHover(e) {
+      if (hoverPart && opt.onPart) opt.onPart(hoverPart, 'leave', e);
+      hoverPart = null;
+      if (hoverJoint) { if (opt.onJoint) opt.onJoint(hoverJoint, 'leave', e); hoverJoint = null; showNet(null); }
+    }
     function bindPointer(cv) {
       cv.tabIndex = 0;
       cv.setAttribute('aria-label', '3D board view. Arrow keys spin and tilt, plus and minus zoom, question mark lists every control.');
@@ -586,12 +669,20 @@ window.PinodeBoard3D = (function () {
           leaveHover(e);
           return;
         }
-        const c = partAt(e);
+        const pk = pickAt(e);
+        const c = pk && pk.part ? pk.part : null, j = pk && pk.joint ? pk.joint : null;
         if (c !== hoverPart && opt.onPart) {
           if (hoverPart) opt.onPart(hoverPart, 'leave', e);
           hoverPart = c;
           if (c) opt.onPart(c, 'enter', e);
         } else if (c && opt.onPart) opt.onPart(c, 'move', e);
+        const jr = j ? j.row : null;
+        if (jr !== (hoverJoint && hoverJoint.row)) {
+          if (hoverJoint && opt.onJoint) opt.onJoint(hoverJoint, 'leave', e);
+          hoverJoint = j;
+          showNet(j);
+          if (j && opt.onJoint) opt.onJoint(j, 'enter', e);
+        } else if (j && opt.onJoint) opt.onJoint(j, 'move', e);
       });
       const up = (e) => {
         touches.delete(e.pointerId);
@@ -601,7 +692,11 @@ window.PinodeBoard3D = (function () {
         if (!d) return;
         // a flick only counts if the hand was still moving when it let go
         if (d.pan || d.pinch || performance.now() - (d.lt || 0) > 80) vel.t = vel.p = 0;
-        if (!d.moved && !d.pinch && e.type === 'pointerup' && opt.onPart && e.button === 0) { const c = partAt(e); if (c) opt.onPart(c, 'click', e); }
+        if (!d.moved && !d.pinch && e.type === 'pointerup' && e.button === 0) {
+          const pk = pickAt(e);
+          if (pk && pk.part && opt.onPart) opt.onPart(pk.part, 'click', e);
+          else if (pk && pk.joint && opt.onJoint) opt.onJoint(pk.joint, 'click', e);
+        }
       };
       cv.addEventListener('pointerup', up);
       cv.addEventListener('pointercancel', up);

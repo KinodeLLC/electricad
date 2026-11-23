@@ -2373,9 +2373,11 @@
     $('boardFace').classList.toggle('on', BV.face === 'back');
     $('boardRot').textContent = '⟳ ' + BV.rot + '°';
     if (S.board && S.board.destroy) S.board.destroy();
+    // a hover box from the board being replaced must not linger
+    if (window.PinodePartTip) PinodePartTip.hide();
     const bopts = {
       mode: imgs.length && BV.mode !== '3d' ? BV.mode : 'drawn', face: BV.face, rot: BV.rot, image, opacity: BV.opacity, battery: BV.battery || 'none',
-      parts: boardPartsNow(), onPart: onBoardPart, silk: (window.PINODE_BOARD_SILK || {})[boardPartsKey()],
+      parts: boardPartsNow(), onPart: onBoardPart, joints: boardJointsNow(), onJoint: onBoardJoint, silk: (window.PINODE_BOARD_SILK || {})[boardPartsKey()],
       title: rev ? (/^(Feather|Pico)/.test(rev.name) ? rev.name : 'Arduino ' + rev.name.replace(/^Arduino /, '')) : def.name };
     S.board = in3d ? PinodeBoard3D.create($('boardHost'), def, bopts) : PinodeBoard.create($('boardHost'), def, onPinHover, bopts);
     $('boardBattery').style.display = S.board.hasCharge ? '' : 'none';
@@ -2411,6 +2413,45 @@
     return rev && all[id + '/' + rev.id] ? id + '/' + rev.id : all[id] ? id : null;
   }
   function boardPartsNow() { const k = boardPartsKey(); return k ? window.PINODE_BOARD_PARTS[k] : null; }
+  // solder joints only where the copper comes from the same design file as the parts
+  function boardJointsNow() { const k = boardPartsKey(); return k ? (window.PINODE_BOARD_JOINTS || {})[k] || null : null; }
+  // a solder joint or pad: whose it is, which net, and what else is on that net
+  function jointTip(j) {
+    const J = boardJointsNow(), parts = boardPartsNow() || [], { def } = currentBoard();
+    const part = parts.find((c) => c.ref === j.ref);
+    const pin = j.kind === 0 ? (def.pins || []).find((p) => p.at && Math.hypot(p.at[0] - j.x, p.at[1] - j.y) < 0.3) : null;
+    const what = j.kind === 0 ? 'Through-hole solder joint' : 'Surface-mount pad (' + (j.kind === 2 ? 'bottom' : 'top') + ')';
+    const bare = /TP|TOP|^D[+-]|SWD|SWCLK|ESP_|VBUS|BUCK|VIN|VCC|GND|3V3|VUSB/.test(j.ref) ? 'Test pad: bare copper, nothing soldered to it' : 'Empty footprint: in the design file, but no part is fitted here';
+    const same = J ? J.p.filter((r) => r[6] === j.row[6] && r !== j.row) : [];
+    const name = (r) => {
+      const c = parts.find((x) => x.ref === r[4]);
+      const hp = r[7] === 0 ? (def.pins || []).find((p) => p.at && Math.hypot(p.at[0] - r[0], p.at[1] - r[1]) < 0.3) : null;
+      if (hp) return 'header ' + hp.label;
+      if (!c) return (/TP|TOP|^D[+-]|SWD|SWCLK|ESP_|VBUS|BUCK|VIN|VCC|GND|3V3|VUSB/.test(r[4]) ? 'test pad ' : 'empty pad ') + r[4];
+      return r[4] + ' (' + bpKind(c).toLowerCase() + ') pad ' + r[5];
+    };
+    let goes;
+    if (!same.length) goes = 'Nothing else (this pad is alone on its net)';
+    else if (same.length > 10) {
+      const refs = new Set(same.map((r) => r[4]));
+      goes = same.length + ' other joints on ' + refs.size + ' parts' + (/GND/i.test(j.net) ? ' (the ground plane)' : /^\+?\d|V(CC|IN|USB|BUS)|3V3|5V/i.test(j.net) ? ' (a power rail)' : '');
+    } else goes = same.map(name).join(', ');
+    return {
+      title: (pin ? 'Pin ' + pin.label + ' · ' : '') + j.ref + ' pad ' + j.pad,
+      sub: what,
+      role: pin ? 'Header pin ' + pin.label + (pin.note && pin.note !== pin.label ? ' (' + pin.note + ')' : '') + (part ? (part.kind === 'conn' ? ', on header ' : ', soldered to ') + j.ref : '') : part ? bpRole(part) : bare,
+      rows: [['Net', j.net], ['Part', part ? j.ref + ' · ' + (part.mpn || part.value || bpKind(part)) : ''], ['Goes to', goes]],
+      details: part ? () => showBoardPartCard(part) : null
+    };
+  }
+  function onBoardJoint(j, what, e) {
+    if (what === 'enter') PinodePartTip.show(jointTip(j), e.clientX, e.clientY);
+    else if (what === 'leave') PinodePartTip.hideSoon();
+    else if (what === 'click') {
+      const part = (boardPartsNow() || []).find((c) => c.ref === j.ref);
+      if (part) { PinodePartTip.hide(); showBoardPartCard(part); }
+    }
+  }
   const BP_KIND = { ic: 'Chip', module: 'Module', cap: 'Ceramic capacitor', ecap: 'Capacitor', res: 'Resistor', rarray: 'Resistor array',
     led: 'LED', rgb: 'NeoPixel', xtal: 'Crystal / resonator', diode: 'Diode', tvs: 'ESD protection', fet: 'Transistor', fuse: 'Fuse', ferrite: 'Ferrite bead',
     ind: 'Inductor', button: 'Button', jumper: 'Solder jumper', usb: 'USB connector', jack: 'Power jack', conn: 'Connector' };
@@ -5318,6 +5359,8 @@ void loop()  { ELECTRICAD_TICK(); /* your code */ }</pre>
     docMarkdown(box.querySelector('.md-preview'), md);
   }
   const WHATS_NEW = [
+    ['🔩 Solder joints in 3D (0.9.9)', 'Turn the board over and hover a solder joint or pad: it shows whose pin it is, the net, the header pin it belongs to and everything else it connects to, and every joint on that net lights up. All from the makers\' design files. Click it to open the part\'s card.'],
+    ['🎯 Hover shows only what you see (0.9.9)', 'In 3D the hover box now answers only for the surface under the pointer: looking at the bottom no longer shows parts on the top through the board.'],
     ['🎮 3D movement controls (0.9.8)', 'The 3D view now moves smoothly: drag to spin (flick it and it keeps turning), right-drag or Shift-drag to move, wheel or pinch to zoom at the pointer. Big buttons spin, tilt, zoom and fit, Auto turns the board slowly on its own, and Home, Iso, Top, Bottom, Front, Back, Left and Right jump to a view. Click the view and use the arrow keys, + and −, 1 to 6 and 0; press ? for every control.'],
     ['🧊 Spin the board in 3D (0.9.7)', 'Press 3D on the Live Board to turn the board any way you like: drag to spin, wheel to zoom, Top, Tilt and Bottom to jump. Every part sits where the design files put it, at its package\'s real height, with the silkscreen, markings and live pins painted on. Hover a part for its box. Boards with no design files stay flat (front and back).'],
     ['🖼 Real boards (0.9.7)', 'The drawn boards now carry the real silkscreen (pin labels, PWM / COMMUNICATION / POWER, MADE IN ITALY, the Feather art), their real colour and black header plastic. The UNO R3 has a real photo, cropped to the board.'],

@@ -3,6 +3,21 @@
 Target: Visual Studio-grade depth, every feature justified by microcontroller
 work. Phases ordered so each ships something usable.
 
+## 0.9.9 — Solder joints, occlusion-aware hover
+
+- 3D picking raycasts the whole scene and takes the first visible hit (array
+  materials checked per face), so far-face parts never answer. Part caps carry
+  userData.part too. Board faces carry userData.face; a face hit looks up the
+  joint under the point (TH on both faces, SMD on its own face); header
+  plastic and posts look up the nearest TH joint within 1.4 mm.
+- renderer/boardjoints.js from tools/extract-board-joints.js: Eagle pads/smd
+  transformed by element rot/mirror, net from contactref; Altium Pads6 layer
+  byte (74 multi-layer = TH, 1 top, 32 bottom) and pad name. Checked: every
+  wired header pin lands on a TH joint within 0.3 mm on all 11 boards, SMD
+  pad faces match their parts.
+- Hover lights every joint on the net (MeshBasic planes, no picking).
+- Next: 0.9.10 simulator (animated current, damage), 0.10.0 AI copilot.
+
 ## 0.9.8 — 3D movement controls
 
 - Camera in renderer/board3d.js: goal + current state eased each frame
@@ -18,7 +33,7 @@ work. Phases ordered so each ships something usable.
   from the current direction; presets refit until the user zooms or pans.
 - On-screen pad (tap nudges, hold repeats), Auto-spin (remembered per
   computer), ? panel listing every control.
-- Next: 0.9.9 simulator (animated current, damage), 0.10.0 AI copilot.
+- Next (renumbered again in 0.9.9): 0.9.10 simulator, 0.10.0 AI copilot.
 
 ## 0.9.7 — Real-looking boards, clones, 3D
 
